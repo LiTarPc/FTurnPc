@@ -1,4 +1,5 @@
 <p align="center">
+  <img src="assets/fturnpc_mockup.png" width="700" alt="FTurnPc Interface" />
 </p>
 
 <h1 align="center">FTurnPc</h1>
@@ -15,9 +16,7 @@
   <img src="https://img.shields.io/badge/Windows-32--bit-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 32-bit">
 </p>
 
-<p align="center">
-  <img src="assets/fturnpc_mockup.png" width="700" alt="FTurnPc Interface" />
-</p>
+
 
 ---
 
