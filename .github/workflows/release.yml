@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build.yml
+          name: pwdtt-linux-amd64
+          path: dist
+
+      - name: Download Windows artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build.yml
+          name: pwdtt-windows-amd64
+          path: dist
+
+      - name: List dist contents
+        run: find dist/ -maxdepth 3 -ls
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/pwdtt-linux-amd64
+            dist/pwdtt-windows-amd64.exe
+          body: |
+            ## PWDTT v1.4 —稳定版
+
+            **Platforms:**
+            - Linux x86_64
+            - Windows x86_64
+
+            > macOS: сборка из исходников (см. README)
+
+            **Fix:**
+            - Исправлено сохранение профилей на macOS
+            - Добавлен ListProfiles() для восстановления серверов после перезапуска

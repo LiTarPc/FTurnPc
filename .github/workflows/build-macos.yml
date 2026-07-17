@@ -1,0 +1,54 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build macOS (Apple Silicon)
+        run: wails build -platform darwin/arm64
+
+      - name: Save arm64 binary
+        run: |
+          cp build/bin/PWDTT.app/Contents/MacOS/PWDTT build/bin/PWDTT-arm64
+
+      - name: Build macOS (Intel)
+        run: wails build -platform darwin/amd64
+
+      - name: Create universal binary
+        run: |
+          lipo -create build/bin/PWDTT-arm64 build/bin/PWDTT.app/Contents/MacOS/PWDTT -output build/bin/PWDTT.app/Contents/MacOS/PWDTT-universal
+          mv build/bin/PWDTT.app/Contents/MacOS/PWDTT-universal build/bin/PWDTT.app/Contents/MacOS/PWDTT
+
+      - name: List build output
+        run: |
+          ls -la build/bin/PWDTT.app/Contents/MacOS/
+          lipo -info build/bin/PWDTT.app/Contents/MacOS/PWDTT
+
+      - name: Zip .app bundle
+        run: cd build/bin && zip -r pwdtt-macos-universal.zip PWDTT.app
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwdtt-macos-universal
+          path: build/bin/pwdtt-macos-universal.zip

@@ -1,0 +1,279 @@
+import { useState, useEffect } from 'react';
+import { SaveProfile, GetProfile } from '../../wailsjs/go/backend/App';
+import type { Server } from '../lib/types';
+import { serverStore } from '../lib/store';
+import { toastStore } from '../lib/stores/toastStore';
+
+interface Props {
+  server: Server;
+  onClose: () => void;
+  onSave?: (updated: Server) => void;
+}
+
+export function ViewServer({ server, onClose, onSave }: Props) {
+  const [links, setLinks] = useState(server.links || '');
+  const [power, setPower] = useState(String(server.power || 10));
+  const [streams, setStreams] = useState(String(server.streamsPerCred || 5));
+  
+  const [profile, setProfile] = useState<Server>(server);
+
+  useEffect(() => {
+    GetProfile(server.name).then((data: any) => {
+      if (!data) return;
+      const full: Server = { ...server, ...data };
+      setProfile(full);
+      setLinks(data.links || server.links || '');
+      setPower(String(data.power || server.power || 10));
+      setStreams(String(data.streamsPerCred || server.streamsPerCred || 5));
+    }).catch(console.error);
+  }, [server.name]);
+
+  const handleSave = async () => {
+    try {
+      const pNum = parseInt(power, 10);
+      const sNum = parseInt(streams, 10);
+      
+      const next: Server = {
+        ...profile,
+        links: links.trim(),
+        power: isNaN(pNum) ? 10 : pNum,
+        streamsPerCred: isNaN(sNum) ? 5 : sNum,
+      };
+
+      await SaveProfile(next.name, next as any);
+      
+      // Update store
+      serverStore.update(next);
+      
+      if (onSave) {
+        onSave(next);
+      }
+      
+      toastStore.show('Профиль сохранен');
+      onClose();
+    } catch (e: any) {
+      toastStore.show('Ошибка сохранения: ' + e);
+    }
+  };
+
+  return (
+    <>
+      <style>{`
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: var(--overlay-bg);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          animation: overlay-in 0.3s ease-out;
+        }
+        .modal {
+          background: var(--surface);
+          border-radius: 14px;
+          padding: 20px;
+          width: 500px;
+          max-width: 95vw;
+          box-shadow: var(--shadow);
+          border: 1px solid var(--border);
+          max-height: 90vh;
+          display: flex;
+          flex-direction: column;
+          animation: modal-in 0.3s ease-out;
+          color: var(--text);
+          box-sizing: border-box;
+        }
+        .modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 15px;
+          color: var(--text);
+        }
+        .modal-header h2 {
+          margin: 0;
+          font-weight: 600;
+        }
+        .modal-body {
+          flex: 1;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+          max-height: 65vh;
+          padding-right: 4px;
+        }
+        .modal-footer {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          margin-top: 15px;
+          padding-top: 10px;
+          border-top: 1px solid var(--border-2);
+        }
+        .form-group {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .form-group.row {
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .form-group label {
+          font-size: 14px;
+          color: var(--text-2);
+        }
+        .form-group.row label {
+          flex: 1;
+        }
+        .form-group.row .input {
+          flex: 2;
+        }
+        .input {
+          padding: 8px 12px;
+          border: 1.5px solid var(--input-border);
+          border-radius: 8px;
+          font-size: 14px;
+          background: var(--input-bg);
+          color: var(--text);
+          outline: none;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .input:focus {
+          border-color: var(--accent);
+        }
+        .btn {
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          border: none;
+          transition: opacity 0.2s, background-color 0.2s;
+        }
+        .btn:hover {
+          opacity: 0.9;
+        }
+        .btn-close {
+          background: none;
+          border: none;
+          cursor: pointer;
+          font-size: 18px;
+          color: var(--text-3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4px;
+        }
+        .btn-close:hover {
+          color: var(--text);
+        }
+        hr {
+          border: 0;
+          border-top: 1px solid var(--border-2);
+          margin: 0.5rem 0;
+        }
+      `}</style>
+      <div className="modal-overlay" onMouseDown={onClose}>
+        <div className="modal" style={{width: 500}} onMouseDown={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 style={{fontSize: 20}}>Профиль: {profile.name}</h2>
+            <button className="btn-close" onClick={onClose}>✕</button>
+          </div>
+          <div className="modal-body">
+            
+            <div className="form-group row">
+              <label>Peer (Address):</label>
+              <input type="text" className="input" value={profile.peer || ''} readOnly disabled style={{opacity: 0.7}} />
+            </div>
+
+            <div className="form-group row">
+              <label>Provider:</label>
+              <input type="text" className="input" value={profile.provider || ''} readOnly disabled style={{opacity: 0.7}} />
+            </div>
+
+            <div className="form-group row">
+              <label>Transport:</label>
+              <input type="text" className="input" value={profile.transport || 'tcp'} readOnly disabled style={{opacity: 0.7}} />
+            </div>
+
+            <div className="form-group row">
+              <label>Obf Profile:</label>
+              <input type="text" className="input" value={profile.obf || ''} readOnly disabled style={{opacity: 0.7}} />
+            </div>
+
+            <div className="form-group row">
+              <label>Obf Key:</label>
+              <input type="text" className="input" value={profile.key || ''} readOnly disabled style={{opacity: 0.7}} />
+            </div>
+
+            <div className="form-group row">
+              <label>Client ID:</label>
+              <input type="text" className="input" value={profile.cid || ''} readOnly disabled style={{opacity: 0.7}} />
+            </div>
+
+            <hr />
+
+            <div className="form-group row">
+              <label>VK Call (Links):</label>
+              <input 
+                type="text" 
+                className="input" 
+                value={links} 
+                onChange={e => setLinks(e.target.value)}
+                placeholder="vk.ru/call..."
+              />
+            </div>
+
+            <div className="form-group row">
+              <label>Threads (-n):</label>
+              <input 
+                type="number" 
+                className="input" 
+                value={power} 
+                onChange={e => setPower(e.target.value)}
+                min="1"
+                max="100"
+              />
+            </div>
+
+            <div className="form-group row">
+              <label>Streams/cred:</label>
+              <input 
+                type="number" 
+                className="input" 
+                value={streams} 
+                onChange={e => setStreams(e.target.value)}
+                min="1"
+                max="20"
+              />
+            </div>
+
+            <hr />
+
+            <div className="form-group" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+              <label style={{marginBottom: '0.5rem'}}>WG Config:</label>
+              <textarea 
+                className="input" 
+                value={profile.wg || ''} 
+                readOnly 
+                disabled 
+                style={{height: 120, width: '100%', opacity: 0.7, fontFamily: 'monospace', resize: 'none', whiteSpace: 'pre', fontSize: '11px'}} 
+              />
+            </div>
+
+          </div>
+          <div className="modal-footer">
+            <button className="btn" onClick={onClose} style={{background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)'}}>Закрыть</button>
+            <button className="btn" onClick={handleSave} style={{background: 'var(--accent)', color: 'var(--accent-fg)'}}>Сохранить</button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
