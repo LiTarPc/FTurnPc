@@ -21,10 +21,14 @@ type FreeturnEngine struct {
 	mu     sync.Mutex
 	wg     sync.WaitGroup
 
-	onTray    func(connected bool, rx, tx int64, workers int32)
-	muIPs     sync.Mutex
-	turnIPs   map[string]bool
-	wgApplied bool
+	onTray            func(connected bool, rx, tx int64, workers int32)
+	muIPs             sync.Mutex
+	turnIPs           map[string]bool
+	wgApplied         bool
+	configuredStreams int
+	muStreams         sync.Mutex
+	activeStreams     map[string]bool
+	statsStop         chan struct{}
 }
 
 func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int32)) *FreeturnEngine {
@@ -63,6 +67,11 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.wgApplied = false
 	e.muIPs.Unlock()
 
+	e.muStreams.Lock()
+	e.activeStreams = make(map[string]bool)
+	e.muStreams.Unlock()
+	e.statsStop = nil
+
 	peerIP, _, _ := strings.Cut(prof.PeerAddr, ":")
 	e.addTurnIP(peerIP)
 
@@ -83,6 +92,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if workers <= 0 {
 		workers = 10
 	}
+	e.configuredStreams = workers
 	args = append(args, "-n", fmt.Sprintf("%d", workers))
 	
 	transport := prof.Transport
@@ -145,6 +155,9 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 
 	go func() {
 		err := e.cmd.Wait()
+		e.mu.Lock()
+		e.stopStatsLoopLocked()
+		e.mu.Unlock()
 		e.wg.Wait()
 		teardownWG()
 
@@ -165,6 +178,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 func (e *FreeturnEngine) Stop() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.stopStatsLoopLocked()
 	if e.cancel != nil {
 		e.cancel()
 	}
@@ -182,6 +196,26 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Parse active streams from logs
+		if idx := strings.Index(line, "[STREAM "); idx != -1 {
+			sub := line[idx+8:]
+			end := strings.Index(sub, "]")
+			if end != -1 {
+				streamID := sub[:end]
+				e.muStreams.Lock()
+				if e.activeStreams == nil {
+					e.activeStreams = make(map[string]bool)
+				}
+				if strings.Contains(line, "relayed-address") || strings.Contains(line, "Established") || strings.Contains(line, "stream is ready") {
+					e.activeStreams[streamID] = true
+				}
+				if strings.Contains(line, "closed") || strings.Contains(line, "failed") {
+					delete(e.activeStreams, streamID)
+				}
+				e.muStreams.Unlock()
+			}
+		}
 		
 		if strings.Contains(line, "TURN server IP:") {
 			parts := strings.Split(line, "TURN server IP:")
@@ -268,6 +302,7 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 						if e.onTray != nil {
 							e.onTray(true, 0, 0, 0)
 						}
+						e.startStatsLoop()
 					}
 				}()
 			}
@@ -290,4 +325,45 @@ func getFreeturnPath() string {
 		return path
 	}
 	return filepath.Join(dir, "freeturnclient.exe")
+}
+
+func (e *FreeturnEngine) startStatsLoop() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.statsStop != nil {
+		return
+	}
+	e.statsStop = make(chan struct{})
+	go func(stop chan struct{}) {
+		t := time.NewTicker(1 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				rx, tx, err := getInterfaceBytes("wg-turn")
+				if err != nil {
+					continue
+				}
+				
+				e.muStreams.Lock()
+				activeCount := len(e.activeStreams)
+				e.muStreams.Unlock()
+				
+				packedWorkers := int32(activeCount) | (int32(e.configuredStreams) << 16)
+				
+				if e.onTray != nil {
+					e.onTray(true, rx, tx, packedWorkers)
+				}
+			case <-stop:
+				return
+			}
+		}
+	}(e.statsStop)
+}
+
+func (e *FreeturnEngine) stopStatsLoopLocked() {
+	if e.statsStop != nil {
+		close(e.statsStop)
+		e.statsStop = nil
+	}
 }
