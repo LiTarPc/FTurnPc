@@ -16,6 +16,10 @@
   <img src="https://img.shields.io/badge/Windows-32--bit-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 32-bit">
 </p>
 
+<p align="center">
+  <img src="assets/fturnpc_mockup.png" width="700" alt="FTurnPc Interface" />
+</p>
+
 ---
 
 ## Как это работает
@@ -85,14 +89,6 @@ freeturn://<Base64-encoded-JSON> -links "https://vk.ru/call/join/9GLAhfKE5..."
 ```
 
 Ссылку можно добавить как через меню `+`, так и просто нажав **Ctrl+V** в любом месте окна приложения.
-
----
-
-## Проводник Windows и иконки (Кэш)
-
-Иконка приложения была обновлена на изображение арбуза с градиентом. Если в Проводнике Windows у `FTurnPc.exe` всё ещё отображается старая иконка дракона:
-1. Переместите файл `FTurnPc.exe` в другую папку или переименуйте его (например, в `FTurnPc2.exe`). Проводник обновит отображение иконки.
-2. Либо очистите кэш иконок Windows (с помощью перезапуска процесса `explorer.exe` или удаления файлов `IconCache.db` в AppData).
 
 ---
 
