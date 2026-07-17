@@ -305,3 +305,7 @@ func parseCIDR(cidr string) (ip, mask string, err error) {
 	mask = fmt.Sprintf("%d.%d.%d.%d", m>>24, (m>>16)&0xff, (m>>8)&0xff, m&0xff)
 	return ip, mask, nil
 }
+
+func getInterfaceBytes(ifaceName string) (rx, tx int64, err error) {
+	return 0, 0, nil
+}

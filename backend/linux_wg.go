@@ -158,3 +158,7 @@ func localDNSServers() []string {
 	}
 	return result
 }
+
+func getInterfaceBytes(ifaceName string) (rx, tx int64, err error) {
+	return 0, 0, nil
+}
