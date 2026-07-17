@@ -1,5 +1,4 @@
 <p align="center">
-  <img src="assets/icons/icon.png" width="96" />
 </p>
 
 <h1 align="center">FTurnPc</h1>
