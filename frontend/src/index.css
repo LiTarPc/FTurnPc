@@ -20,7 +20,7 @@
 }
 
 :root {
-  --bg: #f7f7f8;
+  --bg: radial-gradient(circle, #ffffff 30%, #ffd0d6 100%);
   --bg-2: #f0f0f2;
   --bg-3: #e8e8eb;
   --surface: #ffffff;
@@ -86,6 +86,7 @@
 
 body {
   margin: 0;
+  background: var(--bg);
   transition: background 0.3s ease, color 0.3s ease;
 }
 
