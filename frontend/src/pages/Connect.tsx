@@ -266,9 +266,11 @@ export default function Connect() {
     logStore.push('INFO', `Подключение к профилю: ${cur.name}`);
     try {
       const workers = cur.power || 10;
+      const bypassRu = settingsStore.get().bypassRu;
       await WailsConnect({
         profile: cur.name,
         workers,
+        bypassRu,
       });
       logStore.push('INFO', 'WailsConnect вернул OK (процесс запущен)');
     } catch (e: any) {

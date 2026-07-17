@@ -150,8 +150,9 @@ type ProfileData struct {
 
 // ConnectParams — runtime параметры от UI.
 type ConnectParams struct {
-	Profile string `json:"profile"`
-	Workers int    `json:"workers,omitempty"`
+	Profile  string `json:"profile"`
+	Workers  int    `json:"workers,omitempty"`
+	BypassRu bool   `json:"bypassRu,omitempty"`
 }
 
 func loadProfile(name string) (*ProfileData, error) {

@@ -26,7 +26,7 @@ var (
 	activeRoutesMu  sync.Mutex
 )
 
-func applyWGConfig(conf string, turnIPs []string) error {
+func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
 	teardownWG()
 
 	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {

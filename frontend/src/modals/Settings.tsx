@@ -140,6 +140,11 @@ export default function Settings({ onClose }: Props) {
             <button className={`st-toggle st-toggle--${settings.autoConnect ? 'on' : 'off'}`} onClick={() => update('autoConnect', !settings.autoConnect)} />
           </div>
 
+          <div className="st-row">
+            <span>Обход RU-ресурсов</span>
+            <button className={`st-toggle st-toggle--${settings.bypassRu ? 'on' : 'off'}`} onClick={() => update('bypassRu', !settings.bypassRu)} />
+          </div>
+
           <button
             className={`st-adv-toggle${advancedOpen ? ' st-adv-toggle--open' : ''}`}
             onClick={() => {
