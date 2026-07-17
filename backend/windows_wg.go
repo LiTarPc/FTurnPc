@@ -31,6 +31,8 @@ var (
 	activeDevice        *device.Device
 	activeTun           tun.Device
 	activeExcludeRoutes []string
+	activeGatewayIP     string
+	activeIfaceIndex    int
 )
 
 func InitWintun(dll []byte) { wintunDLL = dll }
@@ -185,35 +187,35 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
 			}
 		}
 
-		log.Printf("[WG] Adding %d exclude routes...", len(excludes))
+		ifIndex, _ := getGatewayInterfaceIndex(gw)
+		activeGatewayIP = gw
+		activeIfaceIndex = ifIndex
+
+		log.Printf("[WG] Adding %d exclude routes via netsh batch...", len(excludes))
 		start := time.Now()
-		
-		// Add excludes in parallel
-		var wg sync.WaitGroup
-		jobs := make(chan string, len(excludes))
-		workerCount := 50
-		if len(excludes) < workerCount {
-			workerCount = len(excludes)
-		}
-		for w := 0; w < workerCount; w++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for cidr := range jobs {
-					ip, mask, err := parseCIDR(cidr)
-					if err == nil {
-						_ = run("route", "add", ip, "mask", mask, gw, "metric", "5")
-					}
+
+		tmpFile, err := os.CreateTemp("", "ft_routes_add_*.txt")
+		if err == nil {
+			defer os.Remove(tmpFile.Name())
+			var content strings.Builder
+			for _, cidr := range excludes {
+				if ifIndex > 0 {
+					content.WriteString(fmt.Sprintf("interface ipv4 add route prefix=%s interface=%d nexthop=%s metric=5 store=active\n", cidr, ifIndex, gw))
+				} else {
+					content.WriteString(fmt.Sprintf("interface ipv4 add route prefix=%s nexthop=%s metric=5 store=active\n", cidr, gw))
 				}
-			}()
+			}
+			_ = os.WriteFile(tmpFile.Name(), []byte(content.String()), 0644)
+			_ = tmpFile.Close()
+
+			if err := run("netsh", "-f", tmpFile.Name()); err != nil {
+				log.Printf("[WG] netsh add routes err: %v", err)
+			}
+		} else {
+			log.Printf("[WG] Failed to create temp file for routes: %v", err)
 		}
-		for _, cidr := range excludes {
-			jobs <- cidr
-		}
-		close(jobs)
-		wg.Wait()
-		
-		log.Printf("[WG] Added all exclude routes in %v", time.Since(start))
+
+		log.Printf("[WG] Added all exclude routes via netsh in %v", time.Since(start))
 		activeExcludeRoutes = excludes
 	}
 
@@ -245,31 +247,35 @@ func teardownWG() {
 	if len(activeExcludeRoutes) > 0 {
 		log.Printf("[WG] Deleting %d exclude routes...", len(activeExcludeRoutes))
 		start := time.Now()
-		var wg sync.WaitGroup
-		jobs := make(chan string, len(activeExcludeRoutes))
-		workerCount := 50
-		if len(activeExcludeRoutes) < workerCount {
-			workerCount = len(activeExcludeRoutes)
-		}
-		for w := 0; w < workerCount; w++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for cidr := range jobs {
-					ip, _, _ := parseCIDR(cidr)
-					if ip != "" {
-						_ = run("route", "delete", ip)
-					}
+
+		gw := activeGatewayIP
+		ifIndex := activeIfaceIndex
+
+		tmpFile, err := os.CreateTemp("", "ft_routes_del_*.txt")
+		if err == nil {
+			defer os.Remove(tmpFile.Name())
+			var content strings.Builder
+			for _, cidr := range activeExcludeRoutes {
+				if ifIndex > 0 {
+					content.WriteString(fmt.Sprintf("interface ipv4 delete route prefix=%s interface=%d nexthop=%s store=active\n", cidr, ifIndex, gw))
+				} else {
+					content.WriteString(fmt.Sprintf("interface ipv4 delete route prefix=%s nexthop=%s store=active\n", cidr, gw))
 				}
-			}()
+			}
+			_ = os.WriteFile(tmpFile.Name(), []byte(content.String()), 0644)
+			_ = tmpFile.Close()
+
+			if err := run("netsh", "-f", tmpFile.Name()); err != nil {
+				log.Printf("[WG] netsh delete routes err: %v", err)
+			}
+		} else {
+			log.Printf("[WG] Failed to create temp file for route deletion: %v", err)
 		}
-		for _, cidr := range activeExcludeRoutes {
-			jobs <- cidr
-		}
-		close(jobs)
-		wg.Wait()
-		log.Printf("[WG] Deleted all exclude routes in %v", time.Since(start))
+
+		log.Printf("[WG] Deleted all exclude routes via netsh in %v", time.Since(start))
 		activeExcludeRoutes = nil
+		activeGatewayIP = ""
+		activeIfaceIndex = 0
 	}
 
 	if activeDevice != nil {
@@ -500,4 +506,30 @@ func mergeCIDRs(cidrs []string) []string {
 		result = append(result, n.String())
 	}
 	return result
+}
+
+func getGatewayInterfaceIndex(gwStr string) (int, error) {
+	gw := net.ParseIP(gwStr)
+	if gw == nil {
+		return 0, fmt.Errorf("invalid gateway IP")
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return 0, err
+	}
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if ok && !ipnet.IP.IsLoopback() {
+				if ipnet.Contains(gw) {
+					return iface.Index, nil
+				}
+			}
+		}
+	}
+	return 0, fmt.Errorf("interface for gateway not found")
 }
