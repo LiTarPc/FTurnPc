@@ -21,9 +21,10 @@ type FreeturnEngine struct {
 	mu     sync.Mutex
 	wg     sync.WaitGroup
 
-	onTray  func(connected bool, rx, tx int64, workers int32)
-	muIPs   sync.Mutex
-	turnIPs map[string]bool
+	onTray    func(connected bool, rx, tx int64, workers int32)
+	muIPs     sync.Mutex
+	turnIPs   map[string]bool
+	wgApplied bool
 }
 
 func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int32)) *FreeturnEngine {
@@ -59,6 +60,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 
 	e.muIPs.Lock()
 	e.turnIPs = make(map[string]bool)
+	e.wgApplied = false
 	e.muIPs.Unlock()
 
 	peerIP, _, _ := strings.Cut(prof.PeerAddr, ":")
@@ -177,7 +179,6 @@ func (e *FreeturnEngine) IsRunning() bool {
 func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgConfig string) {
 	defer e.wg.Done()
 	scanner := bufio.NewScanner(r)
-	wgApplied := false
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -212,35 +213,64 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 				e.addTurnIP(ip)
 			}
 		}
+
+		// Detect if a captcha is requested (either startup or mid-session)
+		if strings.Contains(line, "8765") || strings.Contains(line, "captcha") || strings.Contains(line, "Капча") || strings.Contains(line, "капч") {
+			e.mu.Lock()
+			wasApplied := e.wgApplied
+			e.wgApplied = false
+			e.mu.Unlock()
+
+			teardownWG()
+			
+			if wasApplied {
+				runtime.EventsEmit(e.appCtx, "state_changed", "connecting", "")
+				runtime.EventsEmit(e.appCtx, "log", "WARNING", "[WG] Требуется ввод капчи. Временно отключаем туннель...")
+				if e.onTray != nil {
+					e.onTray(false, 0, 0, 0)
+				}
+			}
+		}
 		
 		// FreeTurn client emits "Established DTLS connection" when a stream is ready
-		if !wgApplied && (strings.Contains(line, "Established DTLS connection") || strings.Contains(line, "activeConnectionCount") || strings.Contains(line, "stream is ready")) {
-			wgApplied = true
-			go func() {
-				runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Ожидание 4 сек, чтобы все потоки успели подключиться...")
-				time.Sleep(4 * time.Second)
-				
-				e.muIPs.Lock()
-				ips := make([]string, 0, len(e.turnIPs))
-				for ip := range e.turnIPs {
-					ips = append(ips, ip)
-				}
-				e.muIPs.Unlock()
-				
-				runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига (исключения: %v)...", ips))
-				
-				if err := applyWGConfig(wgConfig, ips); err != nil {
-					msg := fmt.Sprintf("[WG] Ошибка применения конфига: %v", err)
-					runtime.EventsEmit(e.appCtx, "error", msg)
-					runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
-				} else {
-					runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
-					runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Конфиг применён, туннель активен ✓")
-					if e.onTray != nil {
-						e.onTray(true, 0, 0, 0)
+		if strings.Contains(line, "Established DTLS connection") || strings.Contains(line, "activeConnectionCount") || strings.Contains(line, "stream is ready") {
+			e.mu.Lock()
+			shouldApply := !e.wgApplied
+			if shouldApply {
+				e.wgApplied = true
+			}
+			e.mu.Unlock()
+
+			if shouldApply {
+				go func() {
+					runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Ожидание 4 сек, чтобы все потоки успели подключиться...")
+					time.Sleep(4 * time.Second)
+					
+					e.muIPs.Lock()
+					ips := make([]string, 0, len(e.turnIPs))
+					for ip := range e.turnIPs {
+						ips = append(ips, ip)
 					}
-				}
-			}()
+					e.muIPs.Unlock()
+					
+					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига (исключения: %v)...", ips))
+					
+					if err := applyWGConfig(wgConfig, ips); err != nil {
+						msg := fmt.Sprintf("[WG] Ошибка применения конфига: %v", err)
+						runtime.EventsEmit(e.appCtx, "error", msg)
+						runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
+						e.mu.Lock()
+						e.wgApplied = false
+						e.mu.Unlock()
+					} else {
+						runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
+						runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Конфиг применён, туннель активен ✓")
+						if e.onTray != nil {
+							e.onTray(true, 0, 0, 0)
+						}
+					}
+				}()
+			}
 		}
 		
 		level := classifyLevel(line)
