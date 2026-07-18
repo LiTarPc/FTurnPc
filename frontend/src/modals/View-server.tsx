@@ -74,11 +74,11 @@ export function ViewServer({ server, onClose, onSave }: Props) {
           background: var(--surface);
           border-radius: 14px;
           padding: 20px;
-          width: 500px;
-          max-width: 95vw;
+          width: 340px;
+          max-width: 90vw;
           box-shadow: var(--shadow);
           border: 1px solid var(--border);
-          max-height: 90vh;
+          max-height: 85vh;
           display: flex;
           flex-direction: column;
           animation: modal-in 0.3s ease-out;
