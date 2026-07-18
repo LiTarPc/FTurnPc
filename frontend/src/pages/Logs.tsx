@@ -11,6 +11,12 @@ const LEVEL_COLOR: Record<LogLevel, string> = {
   DEBUG: 'var(--text-3)',
 };
 
+function cleanLogMessage(msg: string): string {
+  // Matches "2026/07/18 17:25:51 [DEBUG] " or "2026/07/18 17:25:51 [INFO] " or similar
+  const prefixRegex = /^\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s+\[(?:DEBUG|INFO|WARN|ERROR)\]\s*/i;
+  return msg.replace(prefixRegex, '');
+}
+
 export default function Logs() {
   const [filter, setFilter] = useState<Filter>('ALL');
   const [search, setSearch] = useState('');
@@ -38,35 +44,186 @@ export default function Logs() {
   });
 
   const handleCopy = () => {
-    const text = visible.map(e => `[${e.time}] [${e.level}] ${e.message}${e.count > 1 ? ` (×${e.count})` : ''}`).join('\n');
+    const text = visible.map(e => `[${e.time}] [${e.level}] ${cleanLogMessage(e.message)}${e.count > 1 ? ` (×${e.count})` : ''}`).join('\n');
     navigator.clipboard.writeText(text);
   };
 
   return (
     <>
       <style>{`
-        .logs-main { flex: 1; min-height: 0; padding: 2px 2px 2px 0; display: flex; flex-direction: column; animation: page-in 0.25s ease-out; }
-        .logs-card { flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); }
-        .logs-toolbar { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border-2); flex-shrink: 0; }
-        .search-wrap { flex: 1; display: flex; justify-content: center; min-width: 0; }
-        .search-inner { position: relative; width: 100%; max-width: 380px; }
-        .search-input { width: 100%; padding: 8px 36px 8px 14px; border: 1px solid var(--input-border); border-radius: 12px; background: var(--input-bg); font-size: 14px; color: var(--text); outline: none; box-sizing: border-box; }
-        .search-input::placeholder { color: var(--text-4); }
-        .search-icon { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
-        .logs-toolbar-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-        .filter-group { display: flex; background: var(--seg-bg); border-radius: 10px; padding: 3px; gap: 2px; }
-        .filter-btn { padding: 6px 16px; border: none; border-radius: 8px; background: transparent; font-size: 13px; font-weight: 600; color: var(--seg-text); cursor: pointer; transition: background 0.15s, color 0.15s; }
-        .filter-btn--active { background: var(--accent); color: var(--accent-fg); }
-        .icon-btn { width: 36px; height: 36px; border: 0.5px solid var(--border); border-radius: 10px; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-3); transition: background 0.12s, border-color 0.12s, color 0.12s; }
-        .icon-btn:hover { background: var(--bg-3); border-color: var(--text-3); color: var(--text); }
-        .logs-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 0; }
-        .log-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 16px; font-size: 13px; line-height: 1.5; }
-        .log-row:hover { background: var(--bg-2); }
-        .log-time { color: var(--text-4); flex-shrink: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
-        .log-level { flex-shrink: 0; font-weight: 700; font-size: 12px; width: 44px; }
-        .log-msg { flex: 1; word-break: break-all; color: var(--text); }
-        .log-count { flex-shrink: 0; background: var(--seg-bg); border-radius: 20px; padding: 1px 7px; font-size: 11px; color: var(--text-2); }
-        .logs-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-4); font-size: 15px; }
+        .logs-main {
+          flex: 1;
+          min-height: 0;
+          padding: 2px 2px 2px 0;
+          display: flex;
+          flex-direction: column;
+          animation: page-in 0.25s ease-out;
+        }
+        .logs-card {
+          flex: 1;
+          min-height: 0;
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          background: var(--surface);
+        }
+        .logs-toolbar {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 14px;
+          border-bottom: 1px solid var(--border-2);
+          flex-shrink: 0;
+        }
+        .search-wrap {
+          flex: 1;
+          display: flex;
+          justify-content: center;
+          min-width: 140px;
+        }
+        .search-inner {
+          position: relative;
+          width: 100%;
+          max-width: 380px;
+        }
+        .search-input {
+          width: 100%;
+          padding: 8px 36px 8px 14px;
+          border: 1px solid var(--input-border);
+          border-radius: 12px;
+          background: var(--input-bg);
+          font-size: 14px;
+          color: var(--text);
+          outline: none;
+          box-sizing: border-box;
+        }
+        .search-input::placeholder {
+          color: var(--text-4);
+        }
+        .search-icon {
+          position: absolute;
+          right: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: var(--text-3);
+          pointer-events: none;
+        }
+        .logs-toolbar-right {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-shrink: 0;
+          flex-wrap: wrap;
+        }
+        .filter-group {
+          display: flex;
+          background: var(--seg-bg);
+          border-radius: 10px;
+          padding: 3px;
+          gap: 2px;
+        }
+        .filter-btn {
+          padding: 6px 16px;
+          border: none;
+          border-radius: 8px;
+          background: transparent;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--seg-text);
+          cursor: pointer;
+          transition: background 0.15s, color 0.15s;
+        }
+        .filter-btn--active {
+          background: var(--accent);
+          color: var(--accent-fg);
+        }
+        .icon-btn {
+          width: 36px;
+          height: 36px;
+          border: 0.5px solid var(--border);
+          border-radius: 10px;
+          background: transparent;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--text-3);
+          transition: background 0.12s, border-color 0.12s, color 0.12s;
+        }
+        .icon-btn:hover {
+          background: var(--bg-3);
+          border-color: var(--text-3);
+          color: var(--text);
+        }
+        .logs-list {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          padding: 8px 0;
+        }
+        .log-row {
+          display: flex;
+          flex-direction: column;
+          padding: 8px 16px;
+          border-bottom: 1px solid var(--border-2);
+          gap: 4px;
+        }
+        .log-row:last-child {
+          border-bottom: none;
+        }
+        .log-row:hover {
+          background: var(--bg-2);
+        }
+        .log-header-line {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          width: 100%;
+        }
+        .log-level {
+          flex-shrink: 0;
+          font-weight: 700;
+          font-size: 11px;
+          width: 44px;
+        }
+        .log-msg {
+          flex: 1;
+          font-size: 13px;
+          line-height: 1.4;
+          word-break: break-word;
+          color: var(--text);
+        }
+        .log-meta-line {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          width: 100%;
+          padding-left: 52px;
+        }
+        .log-time {
+          color: var(--text-4);
+          font-size: 11px;
+          font-variant-numeric: tabular-nums;
+        }
+        .log-count {
+          flex-shrink: 0;
+          background: var(--seg-bg);
+          border-radius: 20px;
+          padding: 1px 7px;
+          font-size: 10px;
+          color: var(--text-2);
+        }
+        .logs-empty {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--text-4);
+          font-size: 15px;
+        }
       `}</style>
       <main className="logs-main">
         <div className="logs-card">
@@ -103,10 +260,14 @@ export default function Logs() {
             <div className="logs-list" ref={listRef} onScroll={onScroll}>
               {visible.map(e => (
                 <div key={e.id} className="log-row">
-                  <span className="log-time">{e.time}</span>
-                  <span className="log-level" style={{ color: LEVEL_COLOR[e.level] }}>{e.level}</span>
-                  <span className="log-msg">{e.message}</span>
-                  {e.count > 1 && <span className="log-count">×{e.count}</span>}
+                  <div className="log-header-line">
+                    <span className="log-level" style={{ color: LEVEL_COLOR[e.level] }}>{e.level}</span>
+                    <span className="log-msg">{cleanLogMessage(e.message)}</span>
+                  </div>
+                  <div className="log-meta-line">
+                    <span className="log-time">{e.time}</span>
+                    {e.count > 1 && <span className="log-count">×{e.count}</span>}
+                  </div>
                 </div>
               ))}
               <div ref={bottomRef} />

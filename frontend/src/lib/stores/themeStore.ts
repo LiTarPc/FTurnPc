@@ -1,5 +1,3 @@
-import { SetWindowTheme } from '../../../wailsjs/go/backend/App';
-
 const KEY = 'wdtt_theme';
 
 type Theme = 'light' | 'dark';
@@ -10,11 +8,6 @@ const listeners = new Set<Listener>();
 
 function apply(t: Theme) {
   document.documentElement.setAttribute('data-theme', t);
-  try {
-    SetWindowTheme(t === 'dark');
-  } catch (e) {
-    // Wails bindings not initialized yet
-  }
 }
 
 apply(current);

@@ -15,6 +15,15 @@ export function ViewServer({ server, onClose, onSave }: Props) {
   const [power, setPower] = useState(String(server.power || 10));
   const [streams, setStreams] = useState(String(server.streamsPerCred || 5));
   
+  const [peer, setPeer] = useState(server.peer || '');
+  const [provider, setProvider] = useState(server.provider || '');
+  const [transport, setTransport] = useState(server.transport || 'tcp');
+  const [obf, setObf] = useState(server.obf || '');
+  const [obfKey, setObfKey] = useState(server.key || '');
+  const [cid, setCid] = useState(server.cid || '');
+  const [wg, setWg] = useState(server.wg || '');
+
+  const [devMode, setDevMode] = useState(false);
   const [profile, setProfile] = useState<Server>(server);
 
   useEffect(() => {
@@ -25,6 +34,13 @@ export function ViewServer({ server, onClose, onSave }: Props) {
       setLinks(data.links || server.links || '');
       setPower(String(data.power || server.power || 10));
       setStreams(String(data.streamsPerCred || server.streamsPerCred || 5));
+      setPeer(data.peer || server.peer || '');
+      setProvider(data.provider || server.provider || '');
+      setTransport(data.transport || server.transport || 'tcp');
+      setObf(data.obf || server.obf || '');
+      setObfKey(data.key || server.key || '');
+      setCid(data.cid || server.cid || '');
+      setWg(data.wg || server.wg || '');
     }).catch(console.error);
   }, [server.name]);
 
@@ -38,6 +54,13 @@ export function ViewServer({ server, onClose, onSave }: Props) {
         links: links.trim(),
         power: isNaN(pNum) ? 10 : pNum,
         streamsPerCred: isNaN(sNum) ? 5 : sNum,
+        peer: peer.trim(),
+        provider: provider.trim(),
+        transport: transport.trim(),
+        obf: obf.trim(),
+        key: obfKey.trim(),
+        cid: cid.trim(),
+        wg: wg.trim(),
       };
 
       await SaveProfile(next.name, next as any);
@@ -180,45 +203,13 @@ export function ViewServer({ server, onClose, onSave }: Props) {
         }
       `}</style>
       <div className="modal-overlay" onMouseDown={onClose}>
-        <div className="modal" style={{width: 500}} onMouseDown={e => e.stopPropagation()}>
+        <div className="modal" onMouseDown={e => e.stopPropagation()}>
           <div className="modal-header">
             <h2 style={{fontSize: 20}}>Профиль: {profile.name}</h2>
             <button className="btn-close" onClick={onClose}>✕</button>
           </div>
           <div className="modal-body">
             
-            <div className="form-group row">
-              <label>Peer (Address):</label>
-              <input type="text" className="input" value={profile.peer || ''} readOnly disabled style={{opacity: 0.7}} />
-            </div>
-
-            <div className="form-group row">
-              <label>Provider:</label>
-              <input type="text" className="input" value={profile.provider || ''} readOnly disabled style={{opacity: 0.7}} />
-            </div>
-
-            <div className="form-group row">
-              <label>Transport:</label>
-              <input type="text" className="input" value={profile.transport || 'tcp'} readOnly disabled style={{opacity: 0.7}} />
-            </div>
-
-            <div className="form-group row">
-              <label>Obf Profile:</label>
-              <input type="text" className="input" value={profile.obf || ''} readOnly disabled style={{opacity: 0.7}} />
-            </div>
-
-            <div className="form-group row">
-              <label>Obf Key:</label>
-              <input type="text" className="input" value={profile.key || ''} readOnly disabled style={{opacity: 0.7}} />
-            </div>
-
-            <div className="form-group row">
-              <label>Client ID:</label>
-              <input type="text" className="input" value={profile.cid || ''} readOnly disabled style={{opacity: 0.7}} />
-            </div>
-
-            <hr />
-
             <div className="form-group row">
               <label>VK Call (Links):</label>
               <input 
@@ -254,18 +245,65 @@ export function ViewServer({ server, onClose, onSave }: Props) {
               />
             </div>
 
-            <hr />
-
-            <div className="form-group" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
-              <label style={{marginBottom: '0.5rem'}}>WG Config:</label>
-              <textarea 
-                className="input" 
-                value={profile.wg || ''} 
-                readOnly 
-                disabled 
-                style={{height: 120, width: '100%', opacity: 0.7, fontFamily: 'monospace', resize: 'none', whiteSpace: 'pre', fontSize: '11px'}} 
-              />
+            <div className="form-group row" style={{ marginTop: 14, marginBottom: 4 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-3)' }}>
+                <input 
+                  type="checkbox" 
+                  checked={devMode} 
+                  onChange={e => setDevMode(e.target.checked)} 
+                  style={{ width: 16, height: 16, cursor: 'pointer' }}
+                />
+                <span>Режим разработчика</span>
+              </label>
             </div>
+
+            {devMode && (
+              <>
+                <hr />
+
+                <div className="form-group row">
+                  <label>Peer (Address):</label>
+                  <input type="text" className="input" value={peer} onChange={e => setPeer(e.target.value)} />
+                </div>
+
+                <div className="form-group row">
+                  <label>Provider:</label>
+                  <input type="text" className="input" value={provider} onChange={e => setProvider(e.target.value)} />
+                </div>
+
+                <div className="form-group row">
+                  <label>Transport:</label>
+                  <input type="text" className="input" value={transport} onChange={e => setTransport(e.target.value)} />
+                </div>
+
+                <div className="form-group row">
+                  <label>Obf Profile:</label>
+                  <input type="text" className="input" value={obf} onChange={e => setObf(e.target.value)} />
+                </div>
+
+                <div className="form-group row">
+                  <label>Obf Key:</label>
+                  <input type="text" className="input" value={obfKey} onChange={e => setObfKey(e.target.value)} />
+                </div>
+
+                <div className="form-group row">
+                  <label>Client ID:</label>
+                  <input type="text" className="input" value={cid} onChange={e => setCid(e.target.value)} />
+                </div>
+
+                <hr />
+
+                <div className="form-group" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+                  <label style={{marginBottom: '0.5rem'}}>WG Config:</label>
+                  <textarea 
+                    className="input" 
+                    value={wg} 
+                    onChange={e => setWg(e.target.value)}
+                    style={{height: 120, width: '100%', fontFamily: 'monospace', resize: 'none', whiteSpace: 'pre', fontSize: '11px'}} 
+                  />
+                </div>
+              </>
+            )}
 
           </div>
           <div className="modal-footer">

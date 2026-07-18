@@ -34,10 +34,10 @@ func main() {
 
 	err := wails.Run(&options.App{
 		Title:     "FTurnPc",
-		Width:     380,
-		Height:    800,
-		MinWidth:  420,
-		MinHeight: 350,
+		Width:     430,
+		Height:    670,
+		MinWidth:  400,
+		MinHeight: 450,
 		Frameless: false,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
