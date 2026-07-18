@@ -29,6 +29,7 @@ type FreeturnEngine struct {
 	muStreams         sync.Mutex
 	activeStreams     map[string]bool
 	statsStop         chan struct{}
+	exitChan          chan struct{}
 }
 
 func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int32)) *FreeturnEngine {
@@ -120,6 +121,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
+	e.exitChan = make(chan struct{})
 	e.cmd = exec.CommandContext(ctx, exePath, args...)
 	
 	// Hide window on Windows
@@ -154,6 +156,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	go e.parseLogs(stderr, prof.WGConfig, p.BypassRu)
 
 	go func() {
+		defer close(e.exitChan)
 		err := e.cmd.Wait()
 		e.mu.Lock()
 		e.stopStatsLoopLocked()
@@ -177,10 +180,23 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 
 func (e *FreeturnEngine) Stop() {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	cancel := e.cancel
+	cmd := e.cmd
+	exitChan := e.exitChan
+	e.mu.Unlock()
+
+	e.mu.Lock()
 	e.stopStatsLoopLocked()
-	if e.cancel != nil {
-		e.cancel()
+	e.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	if exitChan != nil {
+		<-exitChan
 	}
 }
 
