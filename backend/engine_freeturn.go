@@ -248,8 +248,9 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 			}
 		}
 
-		// Detect if a captcha is requested (either startup or mid-session)
-		if strings.Contains(line, "8765") || strings.Contains(line, "captcha") || strings.Contains(line, "Капча") || strings.Contains(line, "капч") {
+		// Detect if a manual captcha is requested (either startup or mid-session)
+		lowerLine := strings.ToLower(line)
+		if strings.Contains(lowerLine, "localhost:8765") || strings.Contains(lowerLine, "manual captcha") {
 			e.mu.Lock()
 			wasApplied := e.wgApplied
 			e.wgApplied = false
@@ -278,7 +279,7 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 			if shouldApply {
 				go func() {
 					runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Ожидание 4 сек, чтобы все потоки успели подключиться...")
-					time.Sleep(4 * time.Second)
+					time.Sleep(6 * time.Second)
 					
 					e.muIPs.Lock()
 					ips := make([]string, 0, len(e.turnIPs))
