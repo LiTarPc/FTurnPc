@@ -5,8 +5,9 @@ import {
   IconCloverFilled, IconFlameFilled, IconShieldFilled, IconLayoutGridFilled, IconCloudFilled, IconBrandSpeedtest,
   IconStarFilled, IconHeartFilled, IconBoltFilled, IconRocket,
   IconCrownFilled, IconDiamondFilled, IconLeafFilled, IconSnowflake,
-  IconServer, IconGlobe, IconLockFilled, IconWifi,
+  IconServer, IconGlobe, IconLockFilled, IconWifi, IconPlugConnected,
 } from '@tabler/icons-react';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 const SERVER_ICONS: { key: string; render: (size: number) => React.ReactNode }[] = [
   { key: 'clover',     render: s => <IconCloverFilled size={s} /> },
@@ -27,33 +28,46 @@ const SERVER_ICONS: { key: string; render: (size: number) => React.ReactNode }[]
   { key: 'globe',      render: s => <IconGlobe size={s} stroke={2} /> },
   { key: 'lock',       render: s => <IconLockFilled size={s} /> },
   { key: 'wifi',       render: s => <IconWifi size={s} stroke={2} /> },
-  { key: 'flag-ru',    render: s => <img src="/flags/ru.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-us',    render: s => <img src="/flags/us.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-de',    render: s => <img src="/flags/de.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-nl',    render: s => <img src="/flags/nl.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-fi',    render: s => <img src="/flags/fi.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-fr',    render: s => <img src="/flags/fr.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-gb',    render: s => <img src="/flags/gb.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-jp',    render: s => <img src="/flags/jp.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-pl',    render: s => <img src="/flags/pl.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-se',    render: s => <img src="/flags/se.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-ch',    render: s => <img src="/flags/ch.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-lt',    render: s => <img src="/flags/lt.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-lv',    render: s => <img src="/flags/lv.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-ee',    render: s => <img src="/flags/ee.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-cz',    render: s => <img src="/flags/cz.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-at',    render: s => <img src="/flags/at.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-ca',    render: s => <img src="/flags/ca.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-au',    render: s => <img src="/flags/au.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-sg',    render: s => <img src="/flags/sg.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-hk',    render: s => <img src="/flags/hk.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-tr',    render: s => <img src="/flags/tr.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
-  { key: 'flag-kz',    render: s => <img src="/flags/kz.svg" width={s} height={s * 0.67} style={{ objectFit: 'cover', borderRadius: 2 }} /> },
+  { key: 'flag-ru',    render: () => <img src="/flags/ru.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-us',    render: () => <img src="/flags/us.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-de',    render: () => <img src="/flags/de.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-nl',    render: () => <img src="/flags/nl.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-fi',    render: () => <img src="/flags/fi.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-fr',    render: () => <img src="/flags/fr.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-gb',    render: () => <img src="/flags/gb.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-jp',    render: () => <img src="/flags/jp.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-pl',    render: () => <img src="/flags/pl.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-se',    render: () => <img src="/flags/se.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-ch',    render: () => <img src="/flags/ch.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-lt',    render: () => <img src="/flags/lt.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-lv',    render: () => <img src="/flags/lv.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-ee',    render: () => <img src="/flags/ee.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-cz',    render: () => <img src="/flags/cz.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-at',    render: () => <img src="/flags/at.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-ca',    render: () => <img src="/flags/ca.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-au',    render: () => <img src="/flags/au.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-sg',    render: () => <img src="/flags/sg.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-hk',    render: () => <img src="/flags/hk.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-tr',    render: () => <img src="/flags/tr.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
+  { key: 'flag-kz',    render: () => <img src="/flags/kz.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
 ];
 
 function ServerIcon({ iconKey, size }: { iconKey?: string; size: number }) {
   const entry = SERVER_ICONS.find(i => i.key === (iconKey ?? 'clover')) ?? SERVER_ICONS[0];
-  return <>{entry.render(size)}</>;
+  return (
+    <div style={{
+      width: size,
+      height: size,
+      borderRadius: '5px',
+      overflow: 'hidden',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    }}>
+      {entry.render(size)}
+    </div>
+  );
 }
 import AddServer from '../modals/Add-server';
 import { ViewServer } from '../modals/View-server';
@@ -92,6 +106,22 @@ const TUNNEL_LABEL: Record<TunnelState, string> = {
   disconnecting: 'Отключение...',
 };
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatSpeed(bytesPerSec: number): string {
+  if (bytesPerSec === 0) return '0 B/s';
+  const k = 1024;
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
+  return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
 export default function Connect() {
   const [servers, setServers] = useState<Server[]>(() => serverStore.getAll());
   const [selected, setSelected] = useState<Server | null>(() => {
@@ -101,6 +131,33 @@ export default function Connect() {
     return all.find(s => s.id === lastId) ?? all[0];
   });
   const [listOpen, setListOpen] = useState(false);
+
+  const [stats, setStats] = useState<{ rx: number; tx: number; downSpeed: number; upSpeed: number } | null>(null);
+  const prevStatsRef = useRef<{ rx: number; tx: number; time: number } | null>(null);
+
+  useEffect(() => {
+    const handleStats = (data: any) => {
+      if (!data) return;
+      const rx = data.rx || 0;
+      const tx = data.tx || 0;
+      const now = Date.now();
+      
+      if (prevStatsRef.current) {
+        const timeDiff = (now - prevStatsRef.current.time) / 1000;
+        if (timeDiff > 0) {
+          const downSpeed = Math.max(0, (rx - prevStatsRef.current.rx) / timeDiff);
+          const upSpeed = Math.max(0, (tx - prevStatsRef.current.tx) / timeDiff);
+          setStats({ rx, tx, downSpeed, upSpeed });
+        }
+      } else {
+        setStats({ rx, tx, downSpeed: 0, upSpeed: 0 });
+      }
+      
+      prevStatsRef.current = { rx, tx, time: now };
+    };
+
+    EventsOn('stats', handleStats);
+  }, []);
 
   useEffect(() => {
     ListProfiles().then((profiles: any) => {
@@ -181,9 +238,15 @@ export default function Connect() {
     }).catch(console.error);
   }, []);
 
-  // tunnelState из глобального store — переживает смену роута
   const [tunnelState, setTunnelState] = useState<TunnelState>(() => tunnelStore.get());
   useEffect(() => tunnelStore.subscribe(setTunnelState), []);
+
+  useEffect(() => {
+    if (tunnelState !== 'connected') {
+      setStats(null);
+      prevStatsRef.current = null;
+    }
+  }, [tunnelState]);
 
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -347,60 +410,376 @@ export default function Connect() {
     <>
       <style>{`
         * { font-family: 'Geist', sans-serif; font-weight: 500; box-sizing: border-box; }
-        .main { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; animation: page-in 0.25s ease-out; background: var(--bg); }
-        .btn-add { position: absolute; top: 16px; right: 20px; background: none; border: none; cursor: pointer; color: var(--text); }
-        .power-btn { position: relative; width: 160px; height: 160px; background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: opacity 0.2s; }
-        .power-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .orb { position: absolute; width: 130px; height: 130px; }
-        .orb img { width: 100%; height: 100%; display: block; }
-        .orb--spinning { animation: shape-spin 2s linear infinite; }
-        .orb--active { animation: shape-pulse 1.2s ease-in-out infinite; }
-        @keyframes shape-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        @keyframes shape-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }
-        @keyframes link-flash { 0% { opacity:1; } 30% { opacity:0.2; } 60% { opacity:1; } 80% { opacity:0.4; } 100% { opacity:1; } }
-        .orb--flash { animation: link-flash 0.8s ease-out; }
-        .power-icon { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; }
-        .status-bar { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: stretch; width: 380px; }
-        .server-list { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 8px; background: var(--surface); animation: slide-down 0.28s ease-out; }
-        .server-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 20px; background: var(--bg-2); font-size: 15px; color: var(--text); font-family: 'Geist', sans-serif; font-weight: 500; border-bottom: 1px solid var(--border-2); }
-        .server-item:last-child { border-bottom: none; }
-        .server-item:hover { background: var(--bg-3); }
-        .server-item--active { background: var(--bg-3); }
-        .server-icon-btn { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; color: var(--text); }
-        .server-edit-btn { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; color: var(--text-3); opacity: 0; transition: opacity 0.15s; }
-        .server-item:hover .server-edit-btn { opacity: 1; }
-        .status-server { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 20px; font-size: 15px; color: var(--text); cursor: pointer; width: 100%; font-family: 'Geist', sans-serif; font-weight: 500; }
-        .status-server--empty { color: var(--text-4); }
-        .status-name { flex: 1; text-align: left; }
-        .status-ping { display: flex; align-items: center; gap: 6px; font-size: 14px; }
-        .ping-dot { width: 8px; height: 8px; border-radius: 50%; }
-        .tunnel-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%, calc(-50% + 80px)); font-size: 13px; color: var(--text-3); pointer-events: none; }
-        .icon-picker { position: fixed; z-index: 200; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px; box-shadow: var(--shadow); display: grid; grid-template-columns: repeat(6, 36px); gap: 4px; animation: modal-in 0.15s ease-out; }
-        .icon-picker-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: none; border: 1px solid transparent; border-radius: 8px; cursor: pointer; color: var(--text); font-size: 18px; }
-        .icon-picker-btn:hover { background: var(--bg-3); border-color: var(--border); }
-        .icon-picker-btn--active { background: var(--bg-3); border-color: var(--accent); }
-
+        .main {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 20px 24px 20px;
+          animation: page-in 0.25s ease-out;
+          background: var(--bg);
+          overflow: hidden;
+          height: 100%;
+        }
+        .header-bar {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 4px;
+        }
+        .brand-title {
+          font-size: 18px;
+          font-weight: 700;
+          color: var(--text);
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .btn-add {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: var(--text);
+          padding: 6px;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.15s;
+        }
+        .btn-add:hover {
+          background: rgba(255, 255, 255, 0.15);
+        }
+        .center-area {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          gap: 20px;
+        }
+        .power-btn {
+          position: relative;
+          width: 160px;
+          height: 160px;
+          background: none;
+          border: none;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          transition: opacity 0.2s;
+        }
+        .power-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .orb {
+          position: absolute;
+          width: 130px;
+          height: 130px;
+        }
+        .orb img {
+          width: 100%;
+          height: 100%;
+          display: block;
+        }
+        .orb--spinning {
+          animation: shape-spin 2s linear infinite;
+        }
+        .orb--active {
+          animation: shape-pulse 1.2s ease-in-out infinite;
+        }
+        @keyframes shape-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes shape-pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.08); }
+        }
+        @keyframes link-flash {
+          0% { opacity: 1; }
+          30% { opacity: 0.2; }
+          60% { opacity: 1; }
+          80% { opacity: 0.4; }
+          100% { opacity: 1; }
+        }
+        .orb--flash {
+          animation: link-flash 0.8s ease-out;
+        }
+        .power-icon {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .tunnel-label {
+          font-size: 14px;
+          color: var(--text-2);
+          font-weight: 600;
+          text-align: center;
+        }
+        .stats-card {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          max-width: 320px;
+          background: var(--surface-glass);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border: 1px solid var(--border-glass);
+          border-radius: 16px;
+          padding: 12px 16px;
+          box-shadow: var(--shadow);
+          animation: slide-down 0.2s ease-out;
+          height: 76px;
+        }
+        .stats-col {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+        .stats-divider {
+          width: 1px;
+          height: 36px;
+          background: var(--border-glass);
+          margin: 0 12px;
+        }
+        .stats-speed {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--text);
+          margin-bottom: 2px;
+          white-space: nowrap;
+        }
+        .stats-label {
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: var(--text-3);
+          margin-bottom: 1px;
+          white-space: nowrap;
+        }
+        .stats-value {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--text-2);
+          white-space: nowrap;
+        }
+        .status-bar {
+          width: 100%;
+          max-width: 320px;
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+          z-index: 10;
+        }
+        .server-list {
+          border: 1px solid var(--border-glass);
+          border-radius: 12px;
+          overflow-y: auto;
+          max-height: 180px;
+          margin-bottom: 8px;
+          background: var(--surface-glass);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          box-shadow: var(--shadow);
+          animation: slide-down 0.28s ease-out;
+        }
+        .server-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          padding: 10px 16px;
+          background: transparent;
+          font-size: 14px;
+          color: var(--text);
+          font-family: 'Geist', sans-serif;
+          font-weight: 500;
+          border-bottom: 1px solid var(--border-glass);
+          border-top: none;
+          border-left: none;
+          border-right: none;
+        }
+        .server-item:last-child {
+          border-bottom: none;
+        }
+        .server-item:hover {
+          background: rgba(255, 255, 255, 0.15);
+        }
+        .server-item--active {
+          background: rgba(255, 255, 255, 0.25);
+        }
+        .server-icon-btn {
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 0;
+          display: flex;
+          align-items: center;
+          color: var(--text);
+        }
+        .server-edit-btn {
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 4px;
+          display: flex;
+          align-items: center;
+          color: var(--text-3);
+          opacity: 0.6;
+          transition: opacity 0.15s, color 0.15s;
+        }
+        .server-edit-btn:hover {
+          opacity: 1;
+          color: var(--text);
+        }
+        .status-server {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: var(--surface-glass);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border: 1px solid var(--border-glass);
+          border-radius: 12px;
+          padding: 10px 16px;
+          font-size: 14px;
+          color: var(--text);
+          cursor: pointer;
+          width: 100%;
+          font-family: 'Geist', sans-serif;
+          font-weight: 600;
+          box-shadow: var(--shadow);
+          transition: background 0.2s;
+        }
+        .status-server:hover {
+          background: rgba(255, 255, 255, 0.55);
+        }
+        .status-server--empty {
+          color: var(--text-4);
+        }
+        .status-name {
+          flex: 1;
+          text-align: left;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .status-ping {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+        }
+        .ping-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+        .icon-picker {
+          position: fixed;
+          z-index: 200;
+          background: var(--surface-glass);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          border: 1px solid var(--border-glass);
+          border-radius: 12px;
+          padding: 10px;
+          box-shadow: var(--shadow);
+          display: grid;
+          grid-template-columns: repeat(6, 36px);
+          gap: 4px;
+          animation: modal-in 0.15s ease-out;
+        }
+        .icon-picker-btn {
+          width: 36px;
+          height: 36px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: none;
+          border: 1px solid transparent;
+          border-radius: 8px;
+          cursor: pointer;
+          color: var(--text);
+          font-size: 18px;
+        }
+        .icon-picker-btn:hover {
+          background: rgba(255, 255, 255, 0.2);
+          border-color: var(--border-glass);
+        }
+        .icon-picker-btn--active {
+          background: rgba(255, 255, 255, 0.3);
+          border-color: var(--accent);
+        }
+        @media (max-height: 550px) {
+          .power-btn {
+            width: 120px;
+            height: 120px;
+          }
+          .orb {
+            width: 96px;
+            height: 96px;
+          }
+          .center-area {
+            gap: 12px;
+          }
+        }
       `}</style>
       <main className="main">
-        <button className="btn-add" onClick={() => setAddServerOpen(true)}>
-          <IconPlus stroke={2} size={22} />
-        </button>
-
-        <button
-          className="power-btn"
-          onClick={handleTunnel}
-          disabled={!selected || isBusy}
-          title={selected ? TUNNEL_LABEL[tunnelState] : 'Добавьте сервер'}
-        >
-          <div className={`orb${isSpinning ? ' orb--spinning' : isActive ? ' orb--active' : ''}${linkFlash ? ' orb--flash' : ''}`}>
-            <img src={theme === 'dark' ? shapeDark : shapeLight} alt="" draggable={false} />
+        <div className="header-bar">
+          <div className="brand-title">
+            <IconPlugConnected size={20} stroke={2.5} style={{ color: 'var(--accent)' }} />
+            <span>FreeTurn</span>
           </div>
-          <div className="power-icon">
-            <img src={powerIcon} alt="" draggable={false} style={{ width: 28, height: 35 }} />
-          </div>
-        </button>
+          <button className="btn-add" onClick={() => setAddServerOpen(true)}>
+            <IconPlus stroke={2} size={22} />
+          </button>
+        </div>
 
-        <span className="tunnel-label">{selected ? TUNNEL_LABEL[tunnelState] : 'Нет серверов'}</span>
+        <div className="center-area">
+          <button
+            className="power-btn"
+            onClick={handleTunnel}
+            disabled={!selected || isBusy}
+            title={selected ? TUNNEL_LABEL[tunnelState] : 'Добавьте сервер'}
+          >
+            <div className={`orb${isSpinning ? ' orb--spinning' : isActive ? ' orb--active' : ''}${linkFlash ? ' orb--flash' : ''}`}>
+              <img src={theme === 'dark' ? shapeDark : shapeLight} alt="" draggable={false} />
+            </div>
+            <div className="power-icon">
+              <img src={powerIcon} alt="" draggable={false} style={{ width: 28, height: 35 }} />
+            </div>
+          </button>
+
+          <span className="tunnel-label">{selected ? TUNNEL_LABEL[tunnelState] : 'Нет серверов'}</span>
+
+          {isActive && stats && (
+            <div className="stats-card">
+              <div className="stats-col">
+                <span className="stats-speed">{formatSpeed(stats.downSpeed)} ↓</span>
+                <span className="stats-label">Скачано</span>
+                <span className="stats-value">{formatBytes(stats.rx)}</span>
+              </div>
+              <div className="stats-divider" />
+              <div className="stats-col">
+                <span className="stats-speed">{formatSpeed(stats.upSpeed)} ↑</span>
+                <span className="stats-label">Отправлено</span>
+                <span className="stats-value">{formatBytes(stats.tx)}</span>
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="status-bar">
           {listOpen && servers.length > 0 && (

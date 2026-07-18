@@ -39,8 +39,8 @@ func main() {
 		Title:     "FTurnPc",
 		Width:     380,
 		Height:    800,
-		MinWidth:  370,
-		MinHeight: 760,
+		MinWidth:  420,
+		MinHeight: 350,
 		Frameless: false,
 		AssetServer: &assetserver.Options{
 			Assets: assets,

@@ -355,6 +355,10 @@ func (e *FreeturnEngine) startStatsLoop() {
 				if e.onTray != nil {
 					e.onTray(true, rx, tx, packedWorkers)
 				}
+				runtime.EventsEmit(e.appCtx, "stats", map[string]interface{}{
+					"rx": rx,
+					"tx": tx,
+				})
 			case <-stop:
 				return
 			}
