@@ -17,7 +17,7 @@ export default function Layout() {
   return (
     <>
       <style>{`
-        .layout { display: flex; height: 100vh; background: var(--bg); color: var(--text); overflow: hidden; }
+        .layout { display: flex; height: 100vh; background: var(--primary); color: var(--text); overflow: hidden; }
         .content { flex: 1; position: relative; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; }
       `}</style>
       <div className="layout">

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  IconPlugConnected,
+  IconPower,
   IconTerminal2,
   IconSettings2,
   IconSun,
@@ -10,8 +10,8 @@ import {
 import { themeStore } from '../lib/stores/themeStore';
 
 const NAV = [
-  { path: '/', icon: <IconPlugConnected stroke={2} size={22} /> },
-  { path: '/logs', icon: <IconTerminal2 stroke={2} size={22} /> },
+  { path: '/', icon: <IconPower stroke={2} size={22} />, label: 'vpn' },
+  { path: '/logs', icon: <IconTerminal2 stroke={2} size={22} />, label: 'логи' },
 ];
 
 interface Props {
@@ -33,37 +33,99 @@ export default function Sidebar({ onSettings, pathname: pathnameProp }: Props) {
   return (
     <>
       <style>{`
-        .sidebar { width: 70px; background: linear-gradient(to bottom, var(--sidebar-from), var(--sidebar-to)); border-radius: 12px; margin: 2px; display: flex; flex-direction: column; justify-content: space-between; padding: 16px 0; overflow: hidden; flex-shrink: 0; }
-        .sidebar-top, .sidebar-bottom { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-        .nav-btn { width: 48px; height: 48px; border: none; border-radius: 12px; background: transparent; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: 0.75; transition: opacity 0.15s; }
-        .nav-btn:hover { opacity: 1; }
-        .nav-btn--active { background: var(--sidebar-btn-active); opacity: 1; border-radius: 16px 16px 16px 2px; }
-        .theme-toggle { background: none; border: none; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; color: #fff; opacity: 0.7; border-radius: 8px; transition: opacity 0.15s; }
-        .theme-toggle:hover { opacity: 1; }
-        .theme-toggle svg { transition: transform 0.35s ease, opacity 0.35s ease; }
-        .theme-toggle:active svg { transform: rotate(180deg) scale(0.8); opacity: 0.4; }
-        @keyframes icon-swap { 0% { transform: rotate(-90deg) scale(0.5); opacity: 0; } 100% { transform: rotate(0deg) scale(1); opacity: 1; } }
-        .theme-toggle svg { animation: icon-swap 0.3s ease-out; }
-        .theme-toggle--dark .theme-toggle-thumb svg { color: #818cf8; }
+        .sidebar {
+          width: 80px;
+          background: var(--sidebar-bg);
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          padding: 12px 0;
+          overflow: hidden;
+          flex-shrink: 0;
+          border-right: 1px solid var(--border);
+        }
+        .sidebar-top, .sidebar-bottom {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 2px;
+        }
+        .nav-btn {
+          width: 64px;
+          padding: 10px 0 6px;
+          border: none;
+          border-radius: var(--border-radius);
+          background: transparent;
+          color: var(--text-3);
+          cursor: pointer;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 3px;
+          transition: background 0.15s, color 0.15s;
+        }
+        .nav-btn:hover {
+          background: var(--button);
+          color: var(--text);
+        }
+        .nav-btn--active {
+          background: var(--accent);
+          color: var(--accent-fg);
+        }
+        .nav-btn--active:hover {
+          background: var(--accent-hover);
+          color: var(--accent-fg);
+        }
+        .nav-label {
+          font-size: 10px;
+          font-weight: 500;
+          letter-spacing: 0.3px;
+          line-height: 1;
+        }
+        .theme-toggle {
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--text-3);
+          border-radius: var(--border-radius);
+          transition: color 0.15s, background 0.15s;
+        }
+        .theme-toggle:hover {
+          color: var(--text);
+          background: var(--button);
+        }
+        .theme-toggle svg {
+          transition: transform 0.3s ease;
+        }
+        .theme-toggle:active svg {
+          transform: rotate(180deg) scale(0.85);
+        }
       `}</style>
       <aside className="sidebar">
         <div className="sidebar-top">
-          {NAV.map(({ path, icon }) => (
+          {NAV.map(({ path, icon, label }) => (
             <button
               key={path}
               className={`nav-btn${pathname === path ? ' nav-btn--active' : ''}`}
               onClick={() => navigate(path)}
             >
               {icon}
+              <span className="nav-label">{label}</span>
             </button>
           ))}
         </div>
         <div className="sidebar-bottom">
-          <button className="theme-toggle" onClick={toggleTheme} title="Toggle theme">
-            {theme === 'light' ? <IconMoon size={17} stroke={2} /> : <IconSun size={17} stroke={2} />}
+          <button className="theme-toggle" onClick={toggleTheme} title="Сменить тему">
+            {theme === 'light' ? <IconMoon size={18} stroke={2} /> : <IconSun size={18} stroke={2} />}
           </button>
           <button className="nav-btn" onClick={onSettings}>
             <IconSettings2 stroke={2} size={22} />
+            <span className="nav-label">настр.</span>
           </button>
         </div>
       </aside>

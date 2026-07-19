@@ -63,14 +63,15 @@ export default function AddServer({ onClose, onAdd }: Props) {
   return (
     <>
       <style>{`
-        .as-overlay { position: fixed; inset: 0; background: var(--overlay-bg); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100; animation: overlay-in 0.3s ease-out; }
-        .as-modal { background: var(--surface); border-radius: 14px; padding: 20px; width: 340px; max-width: 90vw; box-shadow: var(--shadow); border: 1px solid var(--border); max-height: 85vh; overflow-y: auto; animation: modal-in 0.3s ease-out; }
+        .as-overlay { position: fixed; inset: 0; background: var(--overlay-bg); display: flex; align-items: center; justify-content: center; z-index: 100; animation: overlay-in 0.3s ease-out; }
+        .as-modal { background: var(--popup-bg); border-radius: var(--border-radius); padding: 20px; width: 340px; max-width: 90vw; box-shadow: var(--shadow); border: 1px solid var(--border); max-height: 85vh; overflow-y: auto; animation: modal-in 0.3s ease-out; }
         .as-header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: var(--text); }
-        .as-title { font-size: 16px; font-weight: 600; flex: 1; color: var(--text); }
+        .as-title { font-size: 15px; font-weight: 600; flex: 1; color: var(--text); }
         .as-close { background: none; border: none; cursor: pointer; font-size: 18px; color: var(--text); line-height: 1; padding: 0; }
-        .as-input { width: 100%; padding: 11px 14px; border: 1.5px solid var(--input-border); border-radius: 10px; font-size: 14px; font-family: 'Geist', sans-serif; outline: none; margin-bottom: 10px; box-sizing: border-box; color: var(--text); background: var(--input-bg); }
+        .as-input { width: 100%; padding: 11px 14px; border: 1.5px solid var(--input-border); border-radius: var(--border-radius); font-size: 13px; font-family: var(--font); outline: none; margin-bottom: 10px; box-sizing: border-box; color: var(--text); background: var(--input-bg); transition: border-color 0.15s; }
+        .as-input:focus { border-color: var(--input-focus); }
         .as-input::placeholder { color: var(--text-4); }
-        .as-btn { width: 100%; padding: 13px; border: none; border-radius: 10px; background: var(--accent); color: var(--accent-fg); font-size: 14px; font-family: 'Geist', sans-serif; font-weight: 600; cursor: pointer; margin-top: 4px; }
+        .as-btn { width: 100%; padding: 13px; border: none; border-radius: var(--border-radius); background: var(--accent); color: var(--accent-fg); font-size: 13px; font-family: var(--font); font-weight: 600; cursor: pointer; margin-top: 4px; }
         .as-btn:disabled { opacity: 0.4; cursor: not-allowed; }
       `}</style>
       <div className="as-overlay">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type React from 'react';
 import {
-  IconPlus, IconSettings, IconTrash, IconChevronUp,
+  IconPlus, IconSettings, IconTrash, IconChevronUp, IconPower,
   IconCloverFilled, IconFlameFilled, IconShieldFilled, IconLayoutGridFilled, IconCloudFilled, IconBrandSpeedtest,
   IconStarFilled, IconHeartFilled, IconBoltFilled, IconRocket,
   IconCrownFilled, IconDiamondFilled, IconLeafFilled, IconSnowflake,
@@ -74,16 +74,12 @@ import { ViewServer } from '../modals/View-server';
 import { serverStore } from '../lib/store';
 import { tunnelStore } from '../lib/stores/tunnelStore';
 import { settingsStore } from '../lib/store';
-import { themeStore } from '../lib/stores/themeStore';
 import { toastStore } from '../lib/stores/toastStore';
 import { logStore } from '../lib/stores/logStore';
 import { wdttLinkStore } from '../lib/utils/wdttLink';
 import { SaveProfile } from '../../wailsjs/go/backend/App';
 import type { Server, TunnelState } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles, DeleteProfile } from '../../wailsjs/go/backend/App';
-import shapeLight from '../assets/shape-light.png';
-import shapeDark from '../assets/shape-dark.png';
-import powerIcon from '../assets/power-icon.png';
 
 const PING_COLORS: Record<string, string> = {
   good: '#22c55e',
@@ -268,10 +264,6 @@ export default function Connect() {
 
   const [addServerOpen, setAddServerOpen] = useState(false);
   const [viewServer, setViewServer] = useState<Server | null>(null);
-  const [theme, setTheme] = useState(() => themeStore.get());
-  useEffect(() => themeStore.subscribe(setTheme), []);
-
-  const [linkFlash, setLinkFlash] = useState(false);
 
   useEffect(() => {
     return wdttLinkStore.subscribe((link) => {
@@ -312,8 +304,6 @@ export default function Connect() {
         }
         setServers(serverStore.getAll());
         setSelected({ ...s });
-        setLinkFlash(true);
-        setTimeout(() => setLinkFlash(false), 800);
         toastStore.show(existing ? `Профиль обновлён: ${name}` : `Профиль добавлен: ${name}`, 3000);
       };
       applyLink();
@@ -409,7 +399,7 @@ export default function Connect() {
   return (
     <>
       <style>{`
-        * { font-family: 'Geist', sans-serif; font-weight: 500; box-sizing: border-box; }
+        * { font-family: var(--font); box-sizing: border-box; }
         .main {
           flex: 1;
           display: flex;
@@ -418,7 +408,7 @@ export default function Connect() {
           justify-content: space-between;
           padding: 16px 20px 24px 20px;
           animation: page-in 0.25s ease-out;
-          background: var(--bg);
+          background: var(--primary);
           overflow: hidden;
           height: 100%;
         }
@@ -430,7 +420,7 @@ export default function Connect() {
           padding: 0 4px;
         }
         .brand-title {
-          font-size: 18px;
+          font-size: 16px;
           font-weight: 700;
           color: var(--text);
           display: flex;
@@ -438,19 +428,23 @@ export default function Connect() {
           gap: 8px;
         }
         .btn-add {
-          background: none;
-          border: none;
+          background: var(--button);
+          border: 1px solid var(--border);
           cursor: pointer;
           color: var(--text);
-          padding: 6px;
-          border-radius: 8px;
+          padding: 8px;
+          border-radius: var(--border-radius);
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: background 0.15s;
+          transition: background 0.15s, transform 0.1s;
         }
         .btn-add:hover {
-          background: rgba(255, 255, 255, 0.15);
+          background: var(--button-hover);
+        }
+        .btn-add:active {
+          background: var(--button-press);
+          transform: scale(0.95);
         }
         .center-area {
           flex: 1;
@@ -462,68 +456,55 @@ export default function Connect() {
           gap: 20px;
         }
         .power-btn {
-          position: relative;
-          width: 160px;
-          height: 160px;
-          background: none;
-          border: none;
-          cursor: pointer;
+          width: 140px;
+          height: 140px;
+          border-radius: 36px;
+          background: var(--button);
+          color: var(--text-2);
+          border: 1px solid var(--border);
+          box-shadow: var(--shadow);
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 0;
-          transition: opacity 0.2s;
+          cursor: pointer;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .power-btn:hover:not(:disabled) {
+          background: var(--button-hover);
+          color: var(--text);
+          transform: translateY(-2px);
+          box-shadow: var(--shadow), 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .power-btn:active:not(:disabled) {
+          background: var(--button-press);
+          transform: translateY(0);
         }
         .power-btn:disabled {
           opacity: 0.5;
           cursor: not-allowed;
         }
-        .orb {
-          position: absolute;
-          width: 130px;
-          height: 130px;
+        .power-btn--active {
+          background: var(--secondary);
+          color: var(--primary);
+          border-color: var(--secondary);
         }
-        .orb img {
-          width: 100%;
-          height: 100%;
-          display: block;
+        .power-btn--spinning {
+          background: var(--button-hover);
+          color: var(--text-3);
         }
-        .orb--spinning {
-          animation: shape-spin 2s linear infinite;
+        .power-icon--spinning {
+          animation: spin 1.5s linear infinite;
         }
-        .orb--active {
-          animation: shape-pulse 1.2s ease-in-out infinite;
-        }
-        @keyframes shape-spin {
+        @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        @keyframes shape-pulse {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.08); }
-        }
-        @keyframes link-flash {
-          0% { opacity: 1; }
-          30% { opacity: 0.2; }
-          60% { opacity: 1; }
-          80% { opacity: 0.4; }
-          100% { opacity: 1; }
-        }
-        .orb--flash {
-          animation: link-flash 0.8s ease-out;
-        }
-        .power-icon {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
         .tunnel-label {
-          font-size: 14px;
-          color: var(--text-2);
+          font-size: 13px;
+          color: var(--text-3);
           font-weight: 600;
           text-align: center;
+          letter-spacing: 0.2px;
         }
         .stats-card {
           display: flex;
@@ -531,11 +512,9 @@ export default function Connect() {
           justify-content: space-between;
           width: 100%;
           max-width: 320px;
-          background: var(--surface-glass);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          border: 1px solid var(--border-glass);
-          border-radius: 16px;
+          background: var(--button);
+          border: 1px solid var(--border);
+          border-radius: var(--border-radius);
           padding: 12px 16px;
           box-shadow: var(--shadow);
           animation: slide-down 0.2s ease-out;
@@ -550,18 +529,18 @@ export default function Connect() {
         .stats-divider {
           width: 1px;
           height: 36px;
-          background: var(--border-glass);
+          background: var(--border);
           margin: 0 12px;
         }
         .stats-speed {
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 700;
           color: var(--text);
           margin-bottom: 2px;
           white-space: nowrap;
         }
         .stats-label {
-          font-size: 10px;
+          font-size: 9px;
           text-transform: uppercase;
           letter-spacing: 0.5px;
           color: var(--text-3);
@@ -583,14 +562,12 @@ export default function Connect() {
           z-index: 10;
         }
         .server-list {
-          border: 1px solid var(--border-glass);
-          border-radius: 12px;
+          border: 1px solid var(--border);
+          border-radius: var(--border-radius);
           overflow-y: auto;
           max-height: 180px;
           margin-bottom: 8px;
-          background: var(--surface-glass);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
+          background: var(--primary);
           box-shadow: var(--shadow);
           animation: slide-down 0.28s ease-out;
         }
@@ -601,11 +578,10 @@ export default function Connect() {
           width: 100%;
           padding: 10px 16px;
           background: transparent;
-          font-size: 14px;
+          font-size: 13px;
           color: var(--text);
-          font-family: 'Geist', sans-serif;
           font-weight: 500;
-          border-bottom: 1px solid var(--border-glass);
+          border-bottom: 1px solid var(--border);
           border-top: none;
           border-left: none;
           border-right: none;
@@ -614,10 +590,10 @@ export default function Connect() {
           border-bottom: none;
         }
         .server-item:hover {
-          background: rgba(255, 255, 255, 0.15);
+          background: var(--button);
         }
         .server-item--active {
-          background: rgba(255, 255, 255, 0.25);
+          background: var(--button-hover);
         }
         .server-icon-btn {
           background: none;
@@ -647,23 +623,20 @@ export default function Connect() {
           display: flex;
           align-items: center;
           gap: 10px;
-          background: var(--surface-glass);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          border: 1px solid var(--border-glass);
-          border-radius: 12px;
+          background: var(--button);
+          border: 1px solid var(--border);
+          border-radius: var(--border-radius);
           padding: 10px 16px;
-          font-size: 14px;
+          font-size: 13px;
           color: var(--text);
           cursor: pointer;
           width: 100%;
-          font-family: 'Geist', sans-serif;
           font-weight: 600;
           box-shadow: var(--shadow);
           transition: background 0.2s;
         }
         .status-server:hover {
-          background: rgba(255, 255, 255, 0.55);
+          background: var(--button-hover);
         }
         .status-server--empty {
           color: var(--text-4);
@@ -679,21 +652,19 @@ export default function Connect() {
           display: flex;
           align-items: center;
           gap: 6px;
-          font-size: 13px;
+          font-size: 12px;
         }
         .ping-dot {
-          width: 8px;
-          height: 8px;
+          width: 6px;
+          height: 6px;
           border-radius: 50%;
         }
         .icon-picker {
           position: fixed;
           z-index: 200;
-          background: var(--surface-glass);
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-          border: 1px solid var(--border-glass);
-          border-radius: 12px;
+          background: var(--primary);
+          border: 1px solid var(--border);
+          border-radius: var(--border-radius);
           padding: 10px;
           box-shadow: var(--shadow);
           display: grid;
@@ -715,21 +686,17 @@ export default function Connect() {
           font-size: 18px;
         }
         .icon-picker-btn:hover {
-          background: rgba(255, 255, 255, 0.2);
-          border-color: var(--border-glass);
+          background: var(--button);
         }
         .icon-picker-btn--active {
-          background: rgba(255, 255, 255, 0.3);
-          border-color: var(--accent);
+          background: var(--button-hover);
+          border-color: var(--border);
         }
         @media (max-height: 550px) {
           .power-btn {
-            width: 120px;
-            height: 120px;
-          }
-          .orb {
-            width: 96px;
-            height: 96px;
+            width: 110px;
+            height: 110px;
+            border-radius: 28px;
           }
           .center-area {
             gap: 12px;
@@ -749,17 +716,12 @@ export default function Connect() {
 
         <div className="center-area">
           <button
-            className="power-btn"
+            className={`power-btn${isActive ? ' power-btn--active' : ''}${isSpinning ? ' power-btn--spinning' : ''}`}
             onClick={handleTunnel}
             disabled={!selected || isBusy}
             title={selected ? TUNNEL_LABEL[tunnelState] : 'Добавьте сервер'}
           >
-            <div className={`orb${isSpinning ? ' orb--spinning' : isActive ? ' orb--active' : ''}${linkFlash ? ' orb--flash' : ''}`}>
-              <img src={theme === 'dark' ? shapeDark : shapeLight} alt="" draggable={false} />
-            </div>
-            <div className="power-icon">
-              <img src={powerIcon} alt="" draggable={false} style={{ width: 28, height: 35 }} />
-            </div>
+            <IconPower size={48} stroke={2} className={isSpinning ? 'power-icon--spinning' : ''} />
           </button>
 
           <span className="tunnel-label">{selected ? TUNNEL_LABEL[tunnelState] : 'Нет серверов'}</span>

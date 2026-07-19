@@ -54,20 +54,21 @@ export default function Logs() {
         .logs-main {
           flex: 1;
           min-height: 0;
-          padding: 2px 2px 2px 0;
+          padding: 16px 20px 24px 20px;
           display: flex;
           flex-direction: column;
           animation: page-in 0.25s ease-out;
+          background: var(--primary);
         }
         .logs-card {
           flex: 1;
           min-height: 0;
           border: 1px solid var(--border);
-          border-radius: 12px;
+          border-radius: var(--border-radius);
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          background: var(--surface);
+          background: var(--primary);
         }
         .logs-toolbar {
           display: flex;
@@ -75,7 +76,7 @@ export default function Logs() {
           align-items: center;
           gap: 10px;
           padding: 12px 14px;
-          border-bottom: 1px solid var(--border-2);
+          border-bottom: 1px solid var(--border);
           flex-shrink: 0;
         }
         .search-wrap {
@@ -92,20 +93,24 @@ export default function Logs() {
         .search-input {
           width: 100%;
           padding: 8px 36px 8px 14px;
-          border: 1px solid var(--input-border);
-          border-radius: 12px;
+          border: 1.5px solid var(--input-border);
+          border-radius: var(--border-radius);
           background: var(--input-bg);
-          font-size: 14px;
+          font-size: 13px;
           color: var(--text);
           outline: none;
           box-sizing: border-box;
+          transition: border-color 0.15s;
+        }
+        .search-input:focus {
+          border-color: var(--input-focus);
         }
         .search-input::placeholder {
           color: var(--text-4);
         }
         .search-icon {
           position: absolute;
-          right: 10px;
+          right: 12px;
           top: 50%;
           transform: translateY(-50%);
           color: var(--text-3);
@@ -121,16 +126,16 @@ export default function Logs() {
         .filter-group {
           display: flex;
           background: var(--seg-bg);
-          border-radius: 10px;
+          border-radius: var(--border-radius);
           padding: 3px;
           gap: 2px;
         }
         .filter-btn {
           padding: 6px 16px;
           border: none;
-          border-radius: 8px;
+          border-radius: calc(var(--border-radius) - 3px);
           background: transparent;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 600;
           color: var(--seg-text);
           cursor: pointer;
@@ -143,20 +148,23 @@ export default function Logs() {
         .icon-btn {
           width: 36px;
           height: 36px;
-          border: 0.5px solid var(--border);
-          border-radius: 10px;
-          background: transparent;
+          border: 1px solid var(--border);
+          border-radius: var(--border-radius);
+          background: var(--button);
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          color: var(--text-3);
+          color: var(--text-2);
           transition: background 0.12s, border-color 0.12s, color 0.12s;
         }
         .icon-btn:hover {
-          background: var(--bg-3);
-          border-color: var(--text-3);
+          background: var(--button-hover);
+          border-color: var(--border);
           color: var(--text);
+        }
+        .icon-btn:active {
+          background: var(--button-press);
         }
         .logs-list {
           flex: 1;
@@ -175,7 +183,7 @@ export default function Logs() {
           border-bottom: none;
         }
         .log-row:hover {
-          background: var(--bg-2);
+          background: var(--button);
         }
         .log-header-line {
           display: flex;
@@ -191,7 +199,7 @@ export default function Logs() {
         }
         .log-msg {
           flex: 1;
-          font-size: 13px;
+          font-size: 12px;
           line-height: 1.4;
           word-break: break-word;
           color: var(--text);
@@ -222,7 +230,7 @@ export default function Logs() {
           align-items: center;
           justify-content: center;
           color: var(--text-4);
-          font-size: 15px;
+          font-size: 14px;
         }
       `}</style>
       <main className="logs-main">

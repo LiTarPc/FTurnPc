@@ -86,7 +86,6 @@ export function ViewServer({ server, onClose, onSave }: Props) {
           position: fixed;
           inset: 0;
           background: var(--overlay-bg);
-          backdrop-filter: blur(4px);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -94,8 +93,8 @@ export function ViewServer({ server, onClose, onSave }: Props) {
           animation: overlay-in 0.3s ease-out;
         }
         .modal {
-          background: var(--surface);
-          border-radius: 14px;
+          background: var(--popup-bg);
+          border-radius: var(--border-radius);
           padding: 20px;
           width: 340px;
           max-width: 90vw;
@@ -134,7 +133,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
           gap: 10px;
           margin-top: 15px;
           padding-top: 10px;
-          border-top: 1px solid var(--border-2);
+          border-top: 1px solid var(--border);
         }
         .form-group {
           display: flex;
@@ -147,7 +146,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
           justify-content: space-between;
         }
         .form-group label {
-          font-size: 14px;
+          font-size: 13px;
           color: var(--text-2);
         }
         .form-group.row label {
@@ -159,25 +158,26 @@ export function ViewServer({ server, onClose, onSave }: Props) {
         .input {
           padding: 8px 12px;
           border: 1.5px solid var(--input-border);
-          border-radius: 8px;
-          font-size: 14px;
+          border-radius: var(--border-radius);
+          font-size: 13px;
           background: var(--input-bg);
           color: var(--text);
           outline: none;
           width: 100%;
           box-sizing: border-box;
+          transition: border-color 0.15s;
         }
         .input:focus {
-          border-color: var(--accent);
+          border-color: var(--input-focus);
         }
         .btn {
           padding: 8px 16px;
-          border-radius: 8px;
-          font-size: 14px;
+          border-radius: var(--border-radius);
+          font-size: 13px;
           font-weight: 600;
           cursor: pointer;
           border: none;
-          transition: opacity 0.2s, background-color 0.2s;
+          transition: background-color 0.2s;
         }
         .btn:hover {
           opacity: 0.9;
@@ -198,7 +198,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
         }
         hr {
           border: 0;
-          border-top: 1px solid var(--border-2);
+          border-top: 1px solid var(--border);
           margin: 0.5rem 0;
         }
       `}</style>

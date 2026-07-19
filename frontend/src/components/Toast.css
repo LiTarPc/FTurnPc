@@ -3,15 +3,18 @@
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--accent);
-  color: #fff;
+  background: var(--secondary);
+  color: var(--primary);
   padding: 8px 18px;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: var(--border-radius);
+  font-size: 12px;
+  font-family: var(--font);
+  border: 1px solid var(--border);
   white-space: nowrap;
   z-index: 9999;
   pointer-events: none;
   animation: toast-in 0.2s ease;
+  box-shadow: var(--shadow);
 }
 
 @keyframes toast-in {

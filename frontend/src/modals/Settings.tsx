@@ -49,44 +49,44 @@ export default function Settings({ onClose }: Props) {
   return (
     <>
       <style>{`
-        .st-overlay { position: fixed; inset: 0; background: var(--overlay-bg); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100; animation: overlay-in 0.3s ease-out; }
-        .st-modal { background: var(--surface); border-radius: 14px; padding: 20px; width: 380px; max-width: 95vw; box-shadow: var(--shadow); animation: modal-in 0.3s ease-out; border: 1px solid var(--border); }
+        .st-overlay { position: fixed; inset: 0; background: var(--overlay-bg); display: flex; align-items: center; justify-content: center; z-index: 100; animation: overlay-in 0.3s ease-out; }
+        .st-modal { background: var(--popup-bg); border-radius: var(--border-radius); padding: 20px; width: 380px; max-width: 95vw; box-shadow: var(--shadow); animation: modal-in 0.3s ease-out; border: 1px solid var(--border); }
         .st-header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: var(--text); }
-        .st-title { font-size: 16px; font-weight: 600; flex: 1; color: var(--text); }
+        .st-title { font-size: 15px; font-weight: 600; flex: 1; color: var(--text); }
         .st-close { background: none; border: none; cursor: pointer; font-size: 18px; color: var(--text); line-height: 1; padding: 0; }
-        .st-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--border-2); font-size: 14px; color: var(--text); }
+        .st-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); }
         .st-row:last-of-type { border-bottom: none; }
-        .st-toggle { width: 48px; height: 26px; border-radius: 50px; border: none; cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0; }
-        .st-toggle--on { background: var(--accent); }
-        .st-toggle--off { background: var(--seg-bg); }
-        .st-toggle::after { content: ''; position: absolute; width: 18px; height: 18px; border-radius: 50%; top: 4px; transition: left 0.2s; }
-        .st-toggle--on::after { background: var(--accent-fg); left: 26px; }
+        .st-toggle { width: 44px; height: 24px; border-radius: 50px; border: none; cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0; }
+        .st-toggle--on { background: var(--toggle-on); }
+        .st-toggle--off { background: var(--toggle-off); }
+        .st-toggle::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; top: 4px; transition: left 0.2s; }
+        .st-toggle--on::after { background: #ffffff; left: 24px; }
         .st-toggle--off::after { background: var(--text-3); left: 4px; }
-        .st-seg { display: flex; background: var(--seg-bg); border-radius: 8px; padding: 2px; gap: 2px; }
-        .st-seg-btn { padding: 5px 13px; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s; background: transparent; color: var(--seg-text); }
+        .st-seg { display: flex; background: var(--seg-bg); border-radius: var(--border-radius); padding: 2px; gap: 2px; }
+        .st-seg-btn { padding: 5px 13px; border: none; border-radius: calc(var(--border-radius) - 2px); font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s; background: transparent; color: var(--seg-text); }
         .st-seg-btn--active { background: var(--accent); color: var(--accent-fg); }
-        .st-slider-wrap { padding: 4px 0 11px; border-bottom: 1px solid var(--border-2); }
-        .st-slider-label { display: flex; justify-content: space-between; font-size: 14px; color: var(--text); margin-bottom: 8px; }
+        .st-slider-wrap { padding: 4px 0 11px; border-bottom: 1px solid var(--border); }
+        .st-slider-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--text); margin-bottom: 8px; }
         .st-slider { width: 100%; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; cursor: pointer; background: linear-gradient(to right, var(--accent) calc(var(--v) * 1%), var(--border) calc(var(--v) * 1%)); }
-        .st-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); cursor: pointer; }
-        .st-num-input { width: 80px; padding: 5px 10px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; font-family: 'Geist', sans-serif; text-align: right; outline: none; background: var(--input-bg); color: var(--text); transition: border-color 0.15s; }
-        .st-num-input:focus { border-color: var(--accent); }
+        .st-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--primary); border: 2px solid var(--accent); cursor: pointer; }
+        .st-num-input { width: 80px; padding: 5px 10px; border: 1.5px solid var(--input-border); border-radius: var(--border-radius); font-size: 13px; font-family: var(--font); text-align: right; outline: none; background: var(--input-bg); color: var(--text); transition: border-color 0.15s; }
+        .st-num-input:focus { border-color: var(--input-focus); }
         .st-num-input--error { border-color: #ef4444; }
-        .st-hash-btn { width: 100%; margin-top: 16px; padding: 13px; border: 1.5px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-size: 14px; font-family: 'Geist', sans-serif; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .st-hash-btn { width: 100%; margin-top: 16px; padding: 13px; border: 1.5px solid var(--border); border-radius: var(--border-radius); background: var(--button); color: var(--text); font-size: 13px; font-family: var(--font); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .st-locked { opacity: 0.4; pointer-events: none; }
         .st-lock-hint { font-size: 11px; color: var(--text-3); margin-bottom: 4px; text-align: center; }
-        .st-adv-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: none; border: none; border-top: 1px solid var(--border-2); padding: 11px 0 0; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-3); font-family: 'Geist', sans-serif; margin-top: 4px; }
+        .st-adv-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: none; border: none; border-top: 1px solid var(--border); padding: 11px 0 0; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-3); font-family: var(--font); margin-top: 4px; }
         .st-adv-toggle svg { transition: transform 0.2s; }
         .st-adv-toggle--open svg { transform: rotate(180deg); }
         .st-adv-body { overflow: hidden; transition: max-height 0.25s ease, opacity 0.2s; }
         .st-adv-body--open { max-height: 300px; opacity: 1; }
         .st-adv-body--closed { max-height: 0; opacity: 0; pointer-events: none; }
-        .st-confirm-overlay { position: fixed; inset: 0; background: var(--overlay-bg); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 200; }
-        .st-confirm { background: var(--surface); border-radius: 14px; padding: 22px 20px 18px; width: 320px; max-width: 92vw; box-shadow: var(--shadow); border: 1px solid var(--border); }
-        .st-confirm-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
-        .st-confirm-text { font-size: 13px; color: var(--text-2); line-height: 1.5; margin-bottom: 18px; }
+        .st-confirm-overlay { position: fixed; inset: 0; background: var(--overlay-bg); display: flex; align-items: center; justify-content: center; z-index: 200; }
+        .st-confirm { background: var(--popup-bg); border-radius: var(--border-radius); padding: 22px 20px 18px; width: 320px; max-width: 92vw; box-shadow: var(--shadow); border: 1px solid var(--border); }
+        .st-confirm-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+        .st-confirm-text { font-size: 12px; color: var(--text-2); line-height: 1.5; margin-bottom: 18px; }
         .st-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
-        .st-confirm-btn { padding: 8px 18px; border-radius: 8px; border: none; font-size: 13px; font-family: 'Geist', sans-serif; font-weight: 600; cursor: pointer; }
+        .st-confirm-btn { padding: 8px 18px; border-radius: var(--border-radius); border: none; font-size: 12px; font-family: var(--font); font-weight: 600; cursor: pointer; }
         .st-confirm-btn--cancel { background: var(--seg-bg); color: var(--text); }
         .st-confirm-btn--ok { background: var(--accent); color: var(--accent-fg); }
       `}</style>
