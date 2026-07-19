@@ -59,6 +59,9 @@ bin/
 └── geoip-ru.txt           # Список доменов/подсетей для пуска в обход туннеля
 ```
 
+> [!NOTE]
+> Клиентское ядро **`freeturnclient.exe`** необходимо скачать отдельно из репозитория [free-turn-proxy от samosvalishe](https://github.com/samosvalishe/free-turn-proxy) и положить в ту же папку, где находится `FTurnPc.exe` (или в `build/bin/` перед сборкой установщика).
+
 ---
 
 ## Быстрый старт (Windows)
