@@ -97,7 +97,11 @@ Section
     !insertmacro wails.files
     File "..\..\bin\freeturnclient.exe"
     File "..\..\bin\geoip-ru.txt"
-    File "..\..\bin\wintun.dll"
+    !ifdef SUPPORTS_AMD64
+        File "/oname=wintun.dll" "..\..\..\assets\wintun_amd64.dll"
+    !else
+        File "/oname=wintun.dll" "..\..\..\assets\wintun_386.dll"
+    !endif
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
