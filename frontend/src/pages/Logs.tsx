@@ -5,8 +5,8 @@ import { logStore, type LogEntry, type LogLevel } from '../lib/stores/logStore';
 type Filter = 'ALL' | 'INFO' | 'ERROR';
 
 const LEVEL_COLOR: Record<LogLevel, string> = {
-  INFO:  'var(--text)',
-  WARN:  '#f59e0b',
+  INFO: 'var(--text)',
+  WARN: '#f59e0b',
   ERROR: '#ef4444',
   DEBUG: 'var(--text-3)',
 };

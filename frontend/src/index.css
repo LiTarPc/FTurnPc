@@ -46,7 +46,7 @@
 }
 
 [data-theme="dark"] {
-  --bg: #141416;
+  --bg: radial-gradient(circle, #1d182b 10%, #0b0912 100%);
   --bg-2: #1c1c1f;
   --bg-3: #242428;
   --surface: #1c1c1f;
