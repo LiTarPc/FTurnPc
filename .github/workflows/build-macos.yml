@@ -1,6 +1,10 @@
 name: Build macOS
 
 on:
+  push:
+    branches: [main, master, CobaltTheme]
+  pull_request:
+    branches: [main, master, CobaltTheme]
   workflow_dispatch:
 
 jobs:
@@ -29,26 +33,26 @@ jobs:
 
       - name: Save arm64 binary
         run: |
-          cp build/bin/PWDTT.app/Contents/MacOS/PWDTT build/bin/PWDTT-arm64
+          cp build/bin/FTurnPc.app/Contents/MacOS/FTrunPc build/bin/FTrunPc-arm64
 
       - name: Build macOS (Intel)
         run: wails build -platform darwin/amd64
 
       - name: Create universal binary
         run: |
-          lipo -create build/bin/PWDTT-arm64 build/bin/PWDTT.app/Contents/MacOS/PWDTT -output build/bin/PWDTT.app/Contents/MacOS/PWDTT-universal
-          mv build/bin/PWDTT.app/Contents/MacOS/PWDTT-universal build/bin/PWDTT.app/Contents/MacOS/PWDTT
+          lipo -create build/bin/FTrunPc-arm64 build/bin/FTurnPc.app/Contents/MacOS/FTrunPc -output build/bin/FTurnPc.app/Contents/MacOS/FTrunPc-universal
+          mv build/bin/FTurnPc.app/Contents/MacOS/FTrunPc-universal build/bin/FTurnPc.app/Contents/MacOS/FTrunPc
 
       - name: List build output
         run: |
-          ls -la build/bin/PWDTT.app/Contents/MacOS/
-          lipo -info build/bin/PWDTT.app/Contents/MacOS/PWDTT
+          ls -la build/bin/FTurnPc.app/Contents/MacOS/
+          lipo -info build/bin/FTurnPc.app/Contents/MacOS/FTrunPc
 
       - name: Zip .app bundle
-        run: cd build/bin && zip -r pwdtt-macos-universal.zip PWDTT.app
+        run: cd build/bin && zip -r FTrunPc-macos-universal.zip FTurnPc.app
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pwdtt-macos-universal
-          path: build/bin/pwdtt-macos-universal.zip
+          name: FTrunPc-macos-universal
+          path: build/bin/FTrunPc-macos-universal.zip
