@@ -8,6 +8,9 @@ on:
     branches: [main, master, CobaltTheme]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-linux-windows:
     runs-on: ubuntu-22.04
@@ -49,3 +52,25 @@ jobs:
         with:
           name: FTrunPc-windows-amd64
           path: build/bin/FTrunPc.exe
+
+      - name: Create or Update GitHub Release (latest-dev)
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/CobaltTheme' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        with:
+          tag_name: latest-dev
+          name: "Latest Development Build"
+          draft: false
+          prerelease: true
+          files: |
+            build/bin/FTrunPc
+            build/bin/FTrunPc.exe
+          body: |
+            Автоматическая сборка последних коммитов из веток разработки.
+            
+            **Свежие файлы:**
+            - Linux: `FTrunPc`
+            - Windows: `FTrunPc.exe`
+            
+            *Обновлено: ${{ github.event.head_commit.message }}*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
