@@ -4,11 +4,13 @@ package backend
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -24,9 +26,9 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
 		return fmt.Errorf("Address not found in wg config")
 	}
 
-	// Проверяем доступность sudo без пароля
+	// Check if sudo is available
 	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
-		return fmt.Errorf("sudo недоступен (нет прав или требует пароль): %w", err)
+		return fmt.Errorf("sudo недоступен (нет прав без пароля): %w", err)
 	}
 
 	tmp, err := os.CreateTemp("", "wg-turn-*.conf")
@@ -42,7 +44,6 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
 	}
 	tmp.Close()
 
-	// Делаем файл читаемым для root (sudo)
 	_ = os.Chmod(tmpName, 0o644)
 
 	if err := run("ip", "link", "add", wgIface, "type", "wireguard"); err != nil {
@@ -64,27 +65,42 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
 		return fmt.Errorf("ip link set up: %w", err)
 	}
 
-	var routes []string
 	gw := defaultGateway()
+	log.Printf("[WG] Linux default gateway: %s", gw)
+
+	var routes []string
 	if gw != "" {
+		var excludes []string
 		for _, ip := range turnIPs {
-			cidr := ip + "/32"
-			if run("ip", "route", "add", cidr, "via", gw) == nil {
-				routes = append(routes, cidr)
-			}
+			excludes = append(excludes, ip+"/32")
 		}
-		for _, cidr := range vkExcludeCIDRs {
-			if run("ip", "route", "add", cidr, "via", gw) == nil {
-				routes = append(routes, cidr)
-			}
-		}
+		excludes = append(excludes, vkExcludeCIDRs...)
 		for _, dns := range localDNSServers() {
-			cidr := dns + "/32"
-			if run("ip", "route", "add", cidr, "via", gw) == nil {
+			excludes = append(excludes, dns+"/32")
+		}
+
+		if bypassRu {
+			ruCIDRs := loadGeoIPRuCIDRs()
+			excludes = append(excludes, ruCIDRs...)
+		}
+
+		// Apply exclude routes via batch script under sudo for instant application
+		if len(excludes) > 0 {
+			start := time.Now()
+			log.Printf("[WG] Adding %d exclude routes on Linux...", len(excludes))
+			var batchCmds strings.Builder
+			for _, cidr := range excludes {
+				batchCmds.WriteString(fmt.Sprintf("route add %s via %s\n", cidr, gw))
 				routes = append(routes, cidr)
+			}
+			if err := runBatchIPCommands(batchCmds.String()); err != nil {
+				log.Printf("[WG] Batch route add warning: %v", err)
+			} else {
+				log.Printf("[WG] Added %d exclude routes in %v", len(excludes), time.Since(start))
 			}
 		}
 	}
+
 	for _, cidr := range allowedIPs {
 		if run("ip", "route", "add", cidr, "dev", wgIface) == nil {
 			routes = append(routes, "dev:"+cidr)
@@ -103,15 +119,37 @@ func teardownWG() {
 	activeRoutes = nil
 	activeRoutesMu.Unlock()
 
-	for _, entry := range routes {
-		if strings.HasPrefix(entry, "dev:") {
-			cidr := strings.TrimPrefix(entry, "dev:")
-			_ = run("ip", "route", "del", cidr, "dev", wgIface)
-		} else {
-			_ = run("ip", "route", "del", entry)
+	if len(routes) > 0 {
+		var batchCmds strings.Builder
+		for _, entry := range routes {
+			if strings.HasPrefix(entry, "dev:") {
+				cidr := strings.TrimPrefix(entry, "dev:")
+				batchCmds.WriteString(fmt.Sprintf("route del %s dev %s\n", cidr, wgIface))
+			} else {
+				batchCmds.WriteString(fmt.Sprintf("route del %s\n", entry))
+			}
 		}
+		_ = runBatchIPCommands(batchCmds.String())
 	}
 	_ = run("ip", "link", "del", wgIface)
+}
+
+func runBatchIPCommands(script string) error {
+	tmp, err := os.CreateTemp("", "ip-batch-*.txt")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmp.WriteString(script); err != nil {
+		tmp.Close()
+		return err
+	}
+	tmp.Close()
+
+	_ = os.Chmod(tmpName, 0o644)
+	return run("ip", "-batch", tmpName)
 }
 
 func run(name string, args ...string) error {
@@ -150,7 +188,6 @@ func localDNSServers() []string {
 			continue
 		}
 		ip := net.ParseIP(fields[1])
-		// Пропускаем loopback (127.x.x.x, ::1) — маршрут на него бессмысленен
 		if ip == nil || ip.IsLoopback() {
 			continue
 		}
@@ -160,5 +197,13 @@ func localDNSServers() []string {
 }
 
 func getInterfaceBytes(ifaceName string) (rx, tx int64, err error) {
-	return 0, 0, nil
+	rxBytes, err1 := os.ReadFile(fmt.Sprintf("/sys/class/net/%s/statistics/rx_bytes", ifaceName))
+	txBytes, err2 := os.ReadFile(fmt.Sprintf("/sys/class/net/%s/statistics/tx_bytes", ifaceName))
+	if err1 == nil {
+		fmt.Sscanf(strings.TrimSpace(string(rxBytes)), "%d", &rx)
+	}
+	if err2 == nil {
+		fmt.Sscanf(strings.TrimSpace(string(txBytes)), "%d", &tx)
+	}
+	return rx, tx, nil
 }

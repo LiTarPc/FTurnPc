@@ -12,9 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -113,78 +111,8 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
 		excludes = append(excludes, vkExcludeCIDRs...)
 
 		if bypassRu {
-			exe, err := os.Executable()
-			if err == nil {
-				txtPath := filepath.Join(filepath.Dir(exe), "geoip-ru.txt")
-				if bytes, err := os.ReadFile(txtPath); err == nil {
-					lines := strings.Split(string(bytes), "\n")
-					var ruCIDRs []string
-					var domainsToResolve []string
-					for _, line := range lines {
-						line = strings.TrimSpace(line)
-						if line == "" || strings.HasPrefix(line, "#") {
-							continue
-						}
-						if _, _, err := net.ParseCIDR(line); err == nil {
-							ruCIDRs = append(ruCIDRs, line)
-						} else if ip := net.ParseIP(line); ip != nil {
-							ruCIDRs = append(ruCIDRs, line+"/32")
-						} else {
-							domainsToResolve = append(domainsToResolve, line)
-						}
-					}
-
-					if len(domainsToResolve) > 0 {
-						log.Printf("[WG] Resolving %d domains from geoip-ru.txt...", len(domainsToResolve))
-						var mu sync.Mutex
-						var dnsWg sync.WaitGroup
-						sem := make(chan struct{}, 20)
-						for _, rawDom := range domainsToResolve {
-							dnsWg.Add(1)
-							go func(item string) {
-								defer dnsWg.Done()
-								sem <- struct{}{}
-								defer func() { <-sem }()
-
-								dom := item
-								dom = strings.TrimPrefix(dom, "https://")
-								dom = strings.TrimPrefix(dom, "http://")
-								if idx := strings.Index(dom, "/"); idx != -1 {
-									dom = dom[:idx]
-								}
-								if idx := strings.Index(dom, ":"); idx != -1 {
-									dom = dom[:idx]
-								}
-								dom = strings.TrimSpace(dom)
-								if dom == "" {
-									return
-								}
-
-								ips, err := net.LookupIP(dom)
-								if err == nil {
-									mu.Lock()
-									for _, ip := range ips {
-										if ip4 := ip.To4(); ip4 != nil {
-											ruCIDRs = append(ruCIDRs, ip4.String()+"/32")
-										}
-									}
-									mu.Unlock()
-								} else {
-									log.Printf("[WG] Failed to resolve domain %s: %v", dom, err)
-								}
-							}(rawDom)
-						}
-						dnsWg.Wait()
-					}
-
-					log.Printf("[WG] Loaded %d raw RU routes", len(ruCIDRs))
-					ruCIDRs = mergeCIDRs(ruCIDRs)
-					log.Printf("[WG] Merged into %d RU routes", len(ruCIDRs))
-					excludes = append(excludes, ruCIDRs...)
-				} else {
-					log.Printf("[WG] Failed to load geoip-ru.txt: %v", err)
-				}
-			}
+			ruCIDRs := loadGeoIPRuCIDRs()
+			excludes = append(excludes, ruCIDRs...)
 		}
 
 		ifIndex, _ := getGatewayInterfaceIndex(gw)
@@ -443,69 +371,6 @@ func getInterfaceBytes(ifaceName string) (rx, tx int64, err error) {
 		return 0, 0, fmt.Errorf("GetIfEntry returned error: %d", ret)
 	}
 	return int64(row.dwInOctets), int64(row.dwOutOctets), nil
-}
-
-// mergeCIDRs aggregates contiguous or overlapping IPv4 networks to minimize route count.
-func mergeCIDRs(cidrs []string) []string {
-	var nets []*net.IPNet
-	for _, cidr := range cidrs {
-		_, ipnet, err := net.ParseCIDR(cidr)
-		if err == nil {
-			nets = append(nets, ipnet)
-		}
-	}
-
-	// Sort networks by IP address bytes
-	sort.Slice(nets, func(i, j int) bool {
-		ipI := nets[i].IP.To4()
-		ipJ := nets[j].IP.To4()
-		if len(ipI) < 4 || len(ipJ) < 4 {
-			return false
-		}
-		for k := 0; k < 4; k++ {
-			if ipI[k] != ipJ[k] {
-				return ipI[k] < ipJ[k]
-			}
-		}
-		onesI, _ := nets[i].Mask.Size()
-		onesJ, _ := nets[j].Mask.Size()
-		return onesI > onesJ
-	})
-
-	var merged []*net.IPNet
-	for _, n := range nets {
-		if len(merged) == 0 {
-			merged = append(merged, n)
-			continue
-		}
-
-		last := merged[len(merged)-1]
-
-		// Check if current net is subset of last net
-		if last.Contains(n.IP) {
-			continue
-		}
-
-		// Check if they are adjacent and can be merged into a larger prefix
-		onesL, _ := last.Mask.Size()
-		onesN, _ := n.Mask.Size()
-		if onesL == onesN && onesL > 0 {
-			superMask := net.CIDRMask(onesL-1, 32)
-			superNet := &net.IPNet{IP: last.IP.Mask(superMask), Mask: superMask}
-			if superNet.Contains(last.IP) && superNet.Contains(n.IP) {
-				merged[len(merged)-1] = superNet
-				continue
-			}
-		}
-
-		merged = append(merged, n)
-	}
-
-	var result []string
-	for _, n := range merged {
-		result = append(result, n.String())
-	}
-	return result
 }
 
 func getGatewayInterfaceIndex(gwStr string) (int, error) {

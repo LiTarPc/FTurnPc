@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -78,7 +79,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 
 	exePath := getFreeturnPath()
 	if _, err := os.Stat(exePath); os.IsNotExist(err) {
-		return fmt.Errorf("freeturnclient.exe не найден по пути: %s", exePath)
+		return fmt.Errorf("freeturnclient не найден по пути: %s", exePath)
 	}
 
 	args := []string{
@@ -335,13 +336,31 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 }
 
 func getFreeturnPath() string {
+	exeName := "freeturnclient"
+	if goruntime.GOOS == "windows" {
+		exeName = "freeturnclient.exe"
+	}
 	exe, _ := os.Executable()
 	dir := filepath.Dir(exe)
-	path := filepath.Join(dir, "assets", "freeturn", "freeturnclient.exe")
-	if _, err := os.Stat(path); err == nil {
-		return path
+
+	// 1. Check assets/freeturn/ relative to binary
+	path1 := filepath.Join(dir, "assets", "freeturn", exeName)
+	if _, err := os.Stat(path1); err == nil {
+		return path1
 	}
-	return filepath.Join(dir, "freeturnclient.exe")
+
+	// 2. Check same directory as main binary
+	path2 := filepath.Join(dir, exeName)
+	if _, err := os.Stat(path2); err == nil {
+		return path2
+	}
+
+	// 3. Check system PATH
+	if path3, err := exec.LookPath(exeName); err == nil {
+		return path3
+	}
+
+	return path2
 }
 
 func (e *FreeturnEngine) startStatsLoop() {

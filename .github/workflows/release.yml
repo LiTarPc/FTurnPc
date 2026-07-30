@@ -15,7 +15,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: build.yml
-          name: pwdtt-linux-amd64
+          name: FTrunPc
           path: dist
 
       - name: Download Windows artifact
@@ -33,7 +33,7 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            dist/pwdtt-linux-amd64
+            dist/FTrunPc
             dist/pwdtt-windows-amd64.exe
           body: |
             ## PWDTT v1.4 —稳定版

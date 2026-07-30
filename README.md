@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/fturnpc_mockup.png" width="700" alt="FTurnPc Interface" />
+  <img src="assets/fturnpc_mockup.png" width="750" alt="FTurnPc Interface" />
 </p>
 
 <h1 align="center">FTurnPc</h1>
@@ -105,20 +105,36 @@ freeturn://<Base64-encoded-JSON> -links "https://vk.ru/call/join/9GLAhfKE5..."
 
 ## Сборка из исходников
 
-Приложение кросс-компилируется и автоматически внедряет нужную разрядность драйвера `wintun.dll` (32-бит или 64-бит) благодаря условным тегам сборки.
-
 **Требования:** Go 1.26+, Node.js 22+, Wails v2.
 
+### Сборка под Windows:
 ```bash
-# Клонирование репозитория
-git clone https://github.com/LiTarPc/FTurnPc.git
-cd FTurnPc
-
 # Сборка 64-битной версии (рекомендуется)
-wails build -platform windows/amd64
+wails build -platform windows/amd64 -o FTrunPc.exe
 
 # Сборка 32-битной версии (legacy)
-wails build -platform windows/386
+wails build -platform windows/386 -o FTrunPc.exe
+```
+
+### Сборка под Linux:
+Установите системные зависимости перед сборкой:
+
+* **Ubuntu / Debian:**
+  ```bash
+  sudo apt update && sudo apt install -y build-essential gcc pkg-config libgtk-3-dev webkit2gtk-4.1-dev libayatana-appindicator3-dev wireguard-tools
+  ```
+* **Arch Linux / Manjaro:**
+  ```bash
+  sudo pacman -S base-devel pkgconf gtk3 webkit2gtk-4.1 libayatana-appindicator wireguard-tools
+  ```
+* **Fedora / RHEL:**
+  ```bash
+  sudo dnf install -y gcc pkg-config gtk3-devel webkit2gtk4.1-devel libayatana-appindicator-devel wireguard-tools
+  ```
+
+Команда сборки:
+```bash
+wails build -platform linux/amd64 -tags webkit2_41 -o FTrunPc
 ```
 
 ---

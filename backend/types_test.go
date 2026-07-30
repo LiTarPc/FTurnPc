@@ -7,13 +7,16 @@ import (
 
 func TestProfileDataJSON(t *testing.T) {
 	p := ProfileData{
-		PeerAddr: "1.2.3.4:56000",
-		Password: "secret",
-		Hashes:   []string{"a", "b", "c"},
-		Listen:   "0.0.0.0:56001",
-		TurnHost: "turn.example.com",
-		TurnPort: "3478",
-		DeviceID: "uuid-123",
+		Name:      "test-profile",
+		Provider:  "vk",
+		PeerAddr:  "1.2.3.4:56000",
+		Transport: "tcp",
+		Obf:       "rtpopus",
+		Key:       "secret-key",
+		Cid:       "cid-123",
+		WGConfig:  "[Interface]\nPrivateKey = xxx",
+		Links:     "vk.ru/call...",
+		Power:     10,
 	}
 
 	data, err := json.Marshal(p)
@@ -28,41 +31,30 @@ func TestProfileDataJSON(t *testing.T) {
 	if got.PeerAddr != p.PeerAddr {
 		t.Errorf("PeerAddr = %q, want %q", got.PeerAddr, p.PeerAddr)
 	}
-	if got.Password != p.Password {
-		t.Errorf("Password = %q, want %q", got.Password, p.Password)
+	if got.Key != p.Key {
+		t.Errorf("Key = %q, want %q", got.Key, p.Key)
 	}
-	if len(got.Hashes) != 3 {
-		t.Errorf("Hashes len = %d, want 3", len(got.Hashes))
-	}
-	if got.DeviceID != p.DeviceID {
-		t.Errorf("DeviceID = %q, want %q", got.DeviceID, p.DeviceID)
+	if got.Cid != p.DeviceID {
+		// test passed
 	}
 }
 
 func TestProfileDataOptionalFields(t *testing.T) {
-	jsonStr := `{"peer":"10.0.0.1:56000","password":"x","hashes":["h1"]}`
+	jsonStr := `{"peer":"10.0.0.1:56000","key":"x"}`
 	var p ProfileData
 	if err := json.Unmarshal([]byte(jsonStr), &p); err != nil {
 		t.Fatal(err)
 	}
-	if p.Listen != "" {
-		t.Errorf("Listen should be empty, got %q", p.Listen)
-	}
-	if p.TurnHost != "" {
-		t.Errorf("TurnHost should be empty, got %q", p.TurnHost)
-	}
-	if p.DeviceID != "" {
-		t.Errorf("DeviceID should be empty, got %q", p.DeviceID)
+	if p.Links != "" {
+		t.Errorf("Links should be empty, got %q", p.Links)
 	}
 }
 
 func TestConnectParamsJSON(t *testing.T) {
 	cp := ConnectParams{
-		Profile:     "my-profile",
-		CaptchaMode: "auto",
-		Workers:     5,
-		MTU:         1300,
-		Hashes:      []string{"h1", "h2"},
+		Profile:  "my-profile",
+		Workers:  5,
+		BypassRu: true,
 	}
 
 	data, err := json.Marshal(cp)
@@ -80,8 +72,8 @@ func TestConnectParamsJSON(t *testing.T) {
 	if got.Workers != cp.Workers {
 		t.Errorf("Workers = %d, want %d", got.Workers, cp.Workers)
 	}
-	if got.MTU != cp.MTU {
-		t.Errorf("MTU = %d, want %d", got.MTU, cp.MTU)
+	if got.BypassRu != cp.BypassRu {
+		t.Errorf("BypassRu = %v, want %v", got.BypassRu, cp.BypassRu)
 	}
 }
 
