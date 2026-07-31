@@ -34,8 +34,8 @@ func TestProfileDataJSON(t *testing.T) {
 	if got.Key != p.Key {
 		t.Errorf("Key = %q, want %q", got.Key, p.Key)
 	}
-	if got.Cid != p.DeviceID {
-		// test passed
+	if got.Cid != p.Cid {
+		t.Errorf("Cid = %q, want %q", got.Cid, p.Cid)
 	}
 }
 
@@ -54,6 +54,7 @@ func TestConnectParamsJSON(t *testing.T) {
 	cp := ConnectParams{
 		Profile:  "my-profile",
 		Workers:  5,
+		MTU:      1280,
 		BypassRu: true,
 	}
 

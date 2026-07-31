@@ -49,24 +49,26 @@ func extractWintun() error {
 	return os.WriteFile(dst, wintunDLL, 0644)
 }
 
-func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
+func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) error {
 	teardownWG()
 
 	if err := extractWintun(); err != nil {
 		return fmt.Errorf("extract wintun.dll: %w", err)
 	}
 
-	addr, mtuStr, allowedIPs, wgConf := parseWGConfig(conf)
+	addr, mtuStr, allowedIPs, dnsServers, wgConf := parseWGConfig(conf)
 	if addr == "" {
 		return fmt.Errorf("Address not found in wg config")
 	}
 
 	mtu := 1300
-	if mtuStr != "" {
+	if customMTU >= 576 && customMTU <= 1500 {
+		mtu = customMTU
+	} else if mtuStr != "" {
 		fmt.Sscanf(mtuStr, "%d", &mtu)
 	}
 
-	// Create wintun TUN interface
+	log.Printf("[WG] Creating Wintun interface %s with MTU %d...", wgIface, mtu)
 	tunDev, err := tun.CreateTUN(wgIface, mtu)
 	if err != nil {
 		return fmt.Errorf("create TUN: %w", err)
@@ -97,6 +99,25 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
 		if host != "" {
 			_ = run("netsh", "interface", "ip", "set", "address",
 				"name="+wgIface, "source=static", host, mask)
+		}
+	}
+
+	// Принудительная установка MTU на субинтерфейсе Windows TCP/IP для предотвращения фрагментации UDP пакетов
+	log.Printf("[WG] Настройка системного MTU=%d на интерфейсе %s...", mtu, wgIface)
+	if err := run("netsh", "interface", "ipv4", "set", "subinterface", wgIface, fmt.Sprintf("mtu=%d", mtu), "store=active"); err != nil {
+		log.Printf("[WG] Предупреждение netsh MTU: %v", err)
+	}
+
+	// Принудительное назначение безопасных DNS-серверов на интерфейс wg-turn для устранения утечек DNS
+	if len(dnsServers) > 0 {
+		log.Printf("[WG] Настройка безопасных DNS (%s) на интерфейсе %s...", strings.Join(dnsServers, ", "), wgIface)
+		if err := run("netsh", "interface", "ip", "set", "dns",
+			"name="+wgIface, "source=static", dnsServers[0], "register=primary", "validate=no"); err != nil {
+			log.Printf("[WG] Предупреждение netsh первичный DNS: %v", err)
+		}
+		if len(dnsServers) > 1 {
+			_ = run("netsh", "interface", "ip", "add", "dns",
+				"name="+wgIface, "address="+dnsServers[1], "index=2", "validate=no")
 		}
 	}
 

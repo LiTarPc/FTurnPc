@@ -21,7 +21,7 @@ Endpoint = 1.2.3.4:56001
 AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 `
-	addr, mtu, allowedIPs, wgConf := parseWGConfig(input)
+	addr, mtu, allowedIPs, dnsServers, wgConf := parseWGConfig(input)
 
 	if addr != "10.0.0.2/32" {
 		t.Errorf("addr = %q, want %q", addr, "10.0.0.2/32")
@@ -32,6 +32,9 @@ PersistentKeepalive = 25
 	wantIPs := []string{"0.0.0.0/0", "::/0"}
 	if !reflect.DeepEqual(allowedIPs, wantIPs) {
 		t.Errorf("allowedIPs = %v, want %v", allowedIPs, wantIPs)
+	}
+	if len(dnsServers) == 0 {
+		t.Error("dnsServers should not be empty")
 	}
 	// wgConf strips Address/MTU (extracted) and wg-quick-only fields
 	if containsLine(wgConf, "Address") {
@@ -67,10 +70,13 @@ PublicKey = abc123
 Endpoint = 5.6.7.8:56001
 AllowedIPs = 10.0.0.0/24
 `
-	addr, _, _, wgConf := parseWGConfig(input)
+	addr, _, _, dns, wgConf := parseWGConfig(input)
 
 	if addr != "10.0.0.2/32" {
 		t.Errorf("addr = %q, want %q", addr, "10.0.0.2/32")
+	}
+	if len(dns) != 1 || dns[0] != "8.8.8.8" {
+		t.Errorf("dns = %v, want [8.8.8.8]", dns)
 	}
 	// wg-quick-only fields should NOT appear in wgConf output
 	for _, field := range []string{"DNS", "PreUp", "PostUp", "PreDown", "PostDown", "SaveConfig"} {
@@ -91,7 +97,7 @@ Address = 192.168.1.1/24
 [Peer]
 Endpoint = 1.1.1.1:51820
 `
-	addr, _, allowedIPs, _ := parseWGConfig(input)
+	addr, _, allowedIPs, _, _ := parseWGConfig(input)
 
 	if addr != "192.168.1.1/24" {
 		t.Errorf("addr = %q, want %q", addr, "192.168.1.1/24")
@@ -102,7 +108,7 @@ Endpoint = 1.1.1.1:51820
 }
 
 func TestParseWGConfig_EmptyInput(t *testing.T) {
-	addr, mtu, allowedIPs, wgConf := parseWGConfig("")
+	addr, mtu, allowedIPs, dns, wgConf := parseWGConfig("")
 
 	if addr != "" {
 		t.Errorf("addr = %q, want empty", addr)
@@ -113,6 +119,9 @@ func TestParseWGConfig_EmptyInput(t *testing.T) {
 	if len(allowedIPs) != 0 {
 		t.Errorf("allowedIPs = %v, want empty", allowedIPs)
 	}
+	if len(dns) == 0 {
+		t.Errorf("dns = %v, want default DNS", dns)
+	}
 	if wgConf != "" {
 		t.Errorf("wgConf = %q, want empty", wgConf)
 	}
@@ -120,7 +129,7 @@ func TestParseWGConfig_EmptyInput(t *testing.T) {
 
 func TestParseWGConfig_SingleAllowedIP(t *testing.T) {
 	input := `AllowedIPs = 172.16.0.0/16`
-	_, _, allowedIPs, _ := parseWGConfig(input)
+	_, _, allowedIPs, _, _ := parseWGConfig(input)
 
 	if len(allowedIPs) != 1 || allowedIPs[0] != "172.16.0.0/16" {
 		t.Errorf("allowedIPs = %v, want [172.16.0.0/16]", allowedIPs)
@@ -133,7 +142,7 @@ address = 10.0.0.5/32
 MTU = 1300
 allowedips = 0.0.0.0/0
 `
-	addr, mtu, allowedIPs, _ := parseWGConfig(input)
+	addr, mtu, allowedIPs, _, _ := parseWGConfig(input)
 
 	if addr != "10.0.0.5/32" {
 		t.Errorf("addr = %q, want %q", addr, "10.0.0.5/32")

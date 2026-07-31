@@ -152,6 +152,7 @@ type ProfileData struct {
 type ConnectParams struct {
 	Profile  string `json:"profile"`
 	Workers  int    `json:"workers,omitempty"`
+	MTU      int    `json:"mtu,omitempty"`
 	BypassRu bool   `json:"bypassRu,omitempty"`
 }
 

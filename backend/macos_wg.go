@@ -26,7 +26,7 @@ var (
 	activeRoutesMu  sync.Mutex
 )
 
-func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
+func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) error {
 	teardownWG()
 
 	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
@@ -35,7 +35,7 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
 		}
 	}
 
-	addr, mtuStr, allowedIPs, wgConf := parseWGConfig(conf)
+	addr, mtuStr, allowedIPs, _, wgConf := parseWGConfig(conf)
 	if addr == "" {
 		return fmt.Errorf("Address not found in wg config")
 	}

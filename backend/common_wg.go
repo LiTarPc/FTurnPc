@@ -39,8 +39,8 @@ var wgQuickOnlyFields = map[string]bool{
 	"saveconfig": true,
 }
 
-// parseWGConfig extracts Address, MTU, AllowedIPs and returns a wg-setconf-compatible config.
-func parseWGConfig(conf string) (addr, mtu string, allowedIPs []string, wgConf string) {
+// parseWGConfig извлекает параметры Address, MTU, AllowedIPs, DNS-серверы и возвращает конфиг, совместимый с wg setconf.
+func parseWGConfig(conf string) (addr, mtu string, allowedIPs, dnsServers []string, wgConf string) {
 	var out strings.Builder
 	scanner := bufio.NewScanner(strings.NewReader(conf))
 	for scanner.Scan() {
@@ -57,6 +57,13 @@ func parseWGConfig(conf string) (addr, mtu string, allowedIPs []string, wgConf s
 			case "mtu":
 				mtu = val
 				continue
+			case "dns":
+				for _, d := range strings.Split(val, ",") {
+					if item := strings.TrimSpace(d); item != "" {
+						dnsServers = append(dnsServers, item)
+					}
+				}
+				continue
 			case "allowedips":
 				for _, cidr := range strings.Split(val, ",") {
 					if c := strings.TrimSpace(cidr); c != "" {
@@ -70,6 +77,9 @@ func parseWGConfig(conf string) (addr, mtu string, allowedIPs []string, wgConf s
 			}
 		}
 		out.WriteString(line + "\n")
+	}
+	if len(dnsServers) == 0 {
+		dnsServers = []string{"1.1.1.1", "1.0.0.1"}
 	}
 	wgConf = out.String()
 	return

@@ -153,8 +153,8 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	}
 
 	e.wg.Add(2)
-	go e.parseLogs(stdout, prof.WGConfig, p.BypassRu)
-	go e.parseLogs(stderr, prof.WGConfig, p.BypassRu)
+	go e.parseLogs(stdout, prof.WGConfig, p.BypassRu, p.MTU)
+	go e.parseLogs(stderr, prof.WGConfig, p.BypassRu, p.MTU)
 
 	go func() {
 		defer close(e.exitChan)
@@ -207,7 +207,7 @@ func (e *FreeturnEngine) IsRunning() bool {
 	return e.cmd != nil
 }
 
-func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgConfig string, bypassRu bool) {
+func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgConfig string, bypassRu bool, customMTU int) {
 	defer e.wg.Done()
 	scanner := bufio.NewScanner(r)
 
@@ -307,7 +307,7 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 					
 					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига (исключения: %v)...", ips))
 					
-					if err := applyWGConfig(wgConfig, ips, bypassRu); err != nil {
+					if err := applyWGConfig(wgConfig, ips, bypassRu, customMTU); err != nil {
 						msg := fmt.Sprintf("[WG] Ошибка применения конфига: %v", err)
 						runtime.EventsEmit(e.appCtx, "error", msg)
 						runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)

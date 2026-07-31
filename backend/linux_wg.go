@@ -18,12 +18,19 @@ var (
 	activeRoutesMu sync.Mutex
 )
 
-func applyWGConfig(conf string, turnIPs []string, bypassRu bool) error {
+func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) error {
 	teardownWG()
 
-	addr, mtu, allowedIPs, wgConf := parseWGConfig(conf)
+	addr, mtu, allowedIPs, _, wgConf := parseWGConfig(conf)
 	if addr == "" {
 		return fmt.Errorf("Address not found in wg config")
+	}
+
+	mtuVal := 1300
+	if customMTU >= 576 && customMTU <= 1500 {
+		mtuVal = customMTU
+	} else if mtu != "" {
+		fmt.Sscanf(mtu, "%d", &mtuVal)
 	}
 
 	// Check if sudo is available
