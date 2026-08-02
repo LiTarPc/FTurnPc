@@ -321,6 +321,15 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 							e.onTray(true, 0, 0, 0)
 						}
 						e.startStatsLoop()
+
+						// Диагностика типа NAT через STUN после успешного подключения
+						go func() {
+							time.Sleep(2 * time.Second)
+							if natRes, err := CheckNATType(); err == nil && natRes != nil {
+								runtime.EventsEmit(e.appCtx, "nat_info", natRes)
+								runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[NAT] Тип NAT: %s (%s)", natRes.NATType, natRes.Details))
+							}
+						}()
 					}
 				}()
 			}

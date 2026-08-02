@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle } from '@tabler/icons-react';
+import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle, IconActivity } from '@tabler/icons-react';
 import { settingsStore } from '../lib/store';
 import { tunnelStore } from '../lib/stores/tunnelStore';
 import type { AppSettings } from '../lib/types';
-import { SetTrayEnabled, SetAutoStart, GetAutoStart } from '../../wailsjs/go/backend/App';
+import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT } from '../../wailsjs/go/backend/App';
 
 interface Props {
   onClose: () => void;
@@ -18,6 +18,8 @@ export default function Settings({ onClose }: Props) {
   const locked = tunnelState === 'connected' || tunnelState === 'connecting';
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedConfirm, setAdvancedConfirm] = useState(false);
+  const [natResult, setNatResult] = useState<any>(null);
+  const [natLoading, setNatLoading] = useState(false);
 
   // Sync autoStart from backend on open
   useEffect(() => {
@@ -41,6 +43,18 @@ export default function Settings({ onClose }: Props) {
       update('mtu', mtu);
     }
     onClose();
+  };
+
+  const handleCheckNAT = async () => {
+    setNatLoading(true);
+    try {
+      const res = await CheckNAT();
+      setNatResult(res);
+    } catch (e: any) {
+      setNatResult({ natType: 'Ошибка', details: e?.message || String(e) });
+    } finally {
+      setNatLoading(false);
+    }
   };
 
   const filledHashes = settings.hashes.filter(h => h.trim()).length;
@@ -79,7 +93,7 @@ export default function Settings({ onClose }: Props) {
         .st-adv-toggle svg { transition: transform 0.2s; }
         .st-adv-toggle--open svg { transform: rotate(180deg); }
         .st-adv-body { overflow: hidden; transition: max-height 0.25s ease, opacity 0.2s; }
-        .st-adv-body--open { max-height: 300px; opacity: 1; }
+        .st-adv-body--open { max-height: 380px; opacity: 1; }
         .st-adv-body--closed { max-height: 0; opacity: 0; pointer-events: none; }
         .st-confirm-overlay { position: fixed; inset: 0; background: var(--overlay-bg); display: flex; align-items: center; justify-content: center; z-index: 200; }
         .st-confirm { background: var(--popup-bg); border-radius: var(--border-radius); padding: 22px 20px 18px; width: 320px; max-width: 92vw; box-shadow: var(--shadow); border: 1px solid var(--border); }
@@ -89,6 +103,11 @@ export default function Settings({ onClose }: Props) {
         .st-confirm-btn { padding: 8px 18px; border-radius: var(--border-radius); border: none; font-size: 12px; font-family: var(--font); font-weight: 600; cursor: pointer; }
         .st-confirm-btn--cancel { background: var(--seg-bg); color: var(--text); }
         .st-confirm-btn--ok { background: var(--accent); color: var(--accent-fg); }
+        .st-nat-box { margin-top: 10px; padding: 10px; background: var(--seg-bg); border-radius: var(--border-radius); font-size: 11px; }
+        .st-nat-title { font-weight: 600; color: var(--text); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+        .st-nat-val { color: var(--accent); font-weight: 700; margin-bottom: 2px; }
+        .st-nat-sub { color: var(--text-3); font-size: 10px; }
+        .st-nat-btn { width: 100%; margin-top: 8px; padding: 6px 12px; background: var(--button); border: 1px solid var(--border); border-radius: var(--border-radius); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
       `}</style>
       <div className="st-overlay" onClick={handleClose}>
         <div className="st-modal" onClick={e => e.stopPropagation()}>
@@ -152,13 +171,13 @@ export default function Settings({ onClose }: Props) {
               else setAdvancedOpen(false);
             }}
           >
-            <span>Расширенные</span>
+            <span>Режим разработчика</span>
             <IconChevronDown stroke={2} size={16} />
           </button>
 
           <div className={`st-adv-body${advancedOpen ? ' st-adv-body--open' : ' st-adv-body--closed'}`}>
             <div className={`st-row${locked ? ' st-locked' : ''}`} style={{ marginTop: 10 }}>
-              <span>MTU</span>
+              <span>MTU (Clamping)</span>
               <input
                 type="number" min={576} max={1500} step={1}
                 value={mtuRaw}
@@ -172,6 +191,22 @@ export default function Settings({ onClose }: Props) {
                 }}
               />
             </div>
+
+            <div className="st-nat-box">
+              <div className="st-nat-title"><IconActivity size={14} /> Диагностика STUN NAT</div>
+              {natResult ? (
+                <>
+                  <div className="st-nat-val">{natResult.natType}</div>
+                  <div className="st-nat-sub">{natResult.details}</div>
+                  {natResult.mappedIp && <div className="st-nat-sub">Внешний адрес: {natResult.mappedIp}:{natResult.mappedPort}</div>}
+                </>
+              ) : (
+                <div className="st-nat-sub">Нажмите для проверки типа NAT в сети</div>
+              )}
+              <button className="st-nat-btn" onClick={handleCheckNAT} disabled={natLoading}>
+                {natLoading ? 'Тестирование...' : 'Проверить тип NAT'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -179,10 +214,10 @@ export default function Settings({ onClose }: Props) {
       {advancedConfirm && (
         <div className="st-confirm-overlay" onClick={() => setAdvancedConfirm(false)}>
           <div className="st-confirm" onClick={e => e.stopPropagation()}>
-            <div className="st-confirm-title"><IconAlertTriangle size={15} /> Расширенные настройки</div>
+            <div className="st-confirm-title"><IconAlertTriangle size={15} /> Режим разработчика</div>
             <div className="st-confirm-text">
-              Изменение этих параметров может нарушить работу туннеля.
-              Продолжать только если вы понимаете что делаете.
+              Изменение системных параметров MTU/MSS Clamping и диагностика сети могут повлиять на работу туннеля.
+              Продолжайте только если понимаете назначение этих опций.
             </div>
             <div className="st-confirm-actions">
               <button className="st-confirm-btn st-confirm-btn--cancel" onClick={() => setAdvancedConfirm(false)}>Отмена</button>
