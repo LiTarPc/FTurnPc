@@ -121,6 +121,13 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 		}
 	}
 
+	// Настройка правил брандмауэра Windows для беспрепятственного прохода ICMP-ответов от игровых кластеров Valve SDR
+	log.Printf("[WG] Разрешение прохода ICMP-пакетов для игрового пинга Valve SDR...")
+	_ = run("netsh", "advfirewall", "firewall", "delete", "rule", "name=FTurn_ICMP_In")
+	_ = run("netsh", "advfirewall", "firewall", "delete", "rule", "name=FTurn_ICMP_Out")
+	_ = run("netsh", "advfirewall", "firewall", "add", "rule", "name=FTurn_ICMP_In", "dir=in", "action=allow", "protocol=ICMPv4", "profile=any")
+	_ = run("netsh", "advfirewall", "firewall", "add", "rule", "name=FTurn_ICMP_Out", "dir=out", "action=allow", "protocol=ICMPv4", "profile=any")
+
 	// Exclude routes BEFORE adding tunnel routes
 	gw := defaultGateway()
 	log.Printf("[WG] Default gateway: %s", gw)
@@ -226,6 +233,9 @@ func teardownWG() {
 		activeGatewayIP = ""
 		activeIfaceIndex = 0
 	}
+
+	_ = run("netsh", "advfirewall", "firewall", "delete", "rule", "name=FTurn_ICMP_In")
+	_ = run("netsh", "advfirewall", "firewall", "delete", "rule", "name=FTurn_ICMP_Out")
 
 	if activeDevice != nil {
 		activeDevice.Close()
