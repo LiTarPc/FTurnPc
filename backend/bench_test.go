@@ -62,17 +62,7 @@ func BenchmarkClassifyLevel(b *testing.B) {
 	}
 }
 
-func BenchmarkShellQuote(b *testing.B) {
-	for b.Loop() {
-		shellQuote("simple-string-without-quotes")
-	}
-}
 
-func BenchmarkShellQuote_WithQuotes(b *testing.B) {
-	for b.Loop() {
-		shellQuote("it's a 'complicated' string with \"many\" quotes")
-	}
-}
 
 func BenchmarkWgIfaceConst(b *testing.B) {
 	for b.Loop() {

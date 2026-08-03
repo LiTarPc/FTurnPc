@@ -32,28 +32,6 @@ export interface AppSettings {
 
 export type TunnelState = 'idle' | 'connecting' | 'connected' | 'disconnecting';
 
-export interface DeployConfig {
-  host: string;
-  login: string;
-  password: string;
-  portsManual: boolean;
-  // secrets
-  tunnelPassword: string;
-  tgAdminId: string;
-  tgBotToken: string;
-  sshPort: string;
-  dtlsPort: string;
-  wgPort: string;
-}
-
-export const DEFAULT_DEPLOY: DeployConfig = {
-  host: '', login: '', password: '', portsManual: false,
-  tunnelPassword: '', tgAdminId: '', tgBotToken: '',
-  sshPort: '22', dtlsPort: '56000', wgPort: '56001',
-};
-
-export type DeployState = 'idle' | 'deploying' | 'removing';
-
 export const DEFAULT_SETTINGS: AppSettings = {
   bypassMode: 'АВТ',
   power: 9,

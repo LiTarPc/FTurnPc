@@ -59,22 +59,4 @@ func TestClassifyLevel(t *testing.T) {
 	}
 }
 
-func TestShellQuote(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"hello", "'hello'"},
-		{"it's", "'it'\"'\"'s'"},
-		{"", "''"},
-		{"a b c", "'a b c'"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := shellQuote(tt.input)
-			if got != tt.want {
-				t.Errorf("shellQuote(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
+

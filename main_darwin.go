@@ -22,14 +22,7 @@ var appIcon []byte
 //go:embed assets/icons/tree-icon.png
 var trayIcon []byte
 
-//go:embed assets/server/deploy.sh
-var deployScript []byte
-
-//go:embed assets/server/wdtt-server
-var serverBinary []byte
-
 func main() {
-	backend.Init(deployScript, serverBinary)
 	app := backend.NewApp(trayIcon)
 
 	err := wails.Run(&options.App{

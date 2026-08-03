@@ -14,12 +14,6 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed assets/server/deploy.sh
-var deployScript []byte
-
-//go:embed assets/server/wdtt-server
-var serverBinary []byte
-
 //go:embed assets/icons/icon.png
 var appIcon []byte
 
@@ -28,7 +22,6 @@ var trayIcon []byte
 
 func main() {
 
-	backend.Init(deployScript, serverBinary)
 	backend.InitWintun(wintunDLL)
 	app := backend.NewApp(trayIcon)
 
