@@ -295,7 +295,7 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 
 			if shouldApply {
 				go func() {
-					runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Ожидание 4 сек, чтобы все потоки успели подключиться...")
+					runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Ожидание 6 сек, чтобы все потоки успели подключиться...")
 					time.Sleep(6 * time.Second)
 					
 					e.muIPs.Lock()

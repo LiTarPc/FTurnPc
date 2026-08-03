@@ -124,7 +124,13 @@ func configDir() string {
 	if err != nil {
 		base = os.Getenv("HOME")
 	}
-	dir := filepath.Join(base, "pwdtt")
+	dir := filepath.Join(base, "fturnpc")
+	oldDir := filepath.Join(base, "pwdtt")
+	if _, err := os.Stat(oldDir); err == nil {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			_ = os.Rename(oldDir, dir)
+		}
+	}
 	_ = os.MkdirAll(dir, 0o755)
 	return dir
 }
@@ -133,7 +139,7 @@ func profilePath(name string) string {
 	return filepath.Join(configDir(), "profiles", name+".json")
 }
 
-// ProfileData — хранится в ~/.config/pwdtt/profiles/<name>.json
+// ProfileData — хранится в ~/.config/fturnpc/profiles/<name>.json
 type ProfileData struct {
 	Name      string `json:"name"`
 	Provider  string `json:"provider"`

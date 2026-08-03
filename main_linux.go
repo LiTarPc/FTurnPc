@@ -10,7 +10,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 
-	"pwdtt-desktop/backend"
+	"fturnpc/backend"
 )
 
 //go:embed all:frontend/dist

@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/image/draw"
 
-	"pwdtt-desktop/backend/tray"
+	"fturnpc/backend/tray"
 )
 
 func startTray(iconData []byte, onShow, onToggle, onQuit func()) {

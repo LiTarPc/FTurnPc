@@ -26,8 +26,8 @@ export function parseWdttUrl(raw: string): WdttLink | null {
       str = str.slice(0, linksIdx).trim();
     }
     
-    if (str.startsWith('"') && str.endsWith('"')) {
-      str = str.slice(1, -1);
+    if (str.startsWith('wdtt://')) {
+      str = str.replace('wdtt://', 'freeturn://');
     }
     if (!str.startsWith('freeturn://')) return null;
     

@@ -1,13 +1,21 @@
 import type { Server, AppSettings, DeployConfig } from './types';
 import { DEFAULT_SETTINGS, DEFAULT_DEPLOY } from './types';
 
-const SERVERS_KEY = 'wdtt_servers';
-const SETTINGS_KEY = 'wdtt_settings';
-const LAST_SERVER_KEY = 'wdtt_last_server';
+const SERVERS_KEY = 'fturn_servers';
+const SETTINGS_KEY = 'fturn_settings';
+const LAST_SERVER_KEY = 'fturn_last_server';
+const DEPLOY_KEY = 'fturn_deploy';
 
 function parse<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(key);
+    let raw = localStorage.getItem(key);
+    if (!raw && key.startsWith('fturn_')) {
+      const oldKey = key.replace('fturn_', 'wdtt_');
+      raw = localStorage.getItem(oldKey);
+      if (raw) {
+        localStorage.setItem(key, raw);
+      }
+    }
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
@@ -48,7 +56,7 @@ export const settingsStore = {
   save: (settings: AppSettings) => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)),
 };
 
-const DEPLOY_KEY = 'wdtt_deploy';
+const DEPLOY_KEY = 'fturn_deploy';
 
 export const deployStore = {
   get: (): DeployConfig => parse<DeployConfig>(DEPLOY_KEY, DEFAULT_DEPLOY),

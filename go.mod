@@ -1,4 +1,4 @@
-module pwdtt-desktop
+module fturnpc
 
 go 1.26
 

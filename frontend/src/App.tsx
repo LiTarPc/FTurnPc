@@ -17,7 +17,7 @@ function useWdttPaste() {
   useEffect(() => {
     const handler = (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData('text') ?? '';
-      if (!text.trim().startsWith('wdtt://')) return;
+      if (!text.trim().startsWith('freeturn://') && !text.trim().startsWith('wdtt://')) return;
       const tag = (document.activeElement as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       e.preventDefault();

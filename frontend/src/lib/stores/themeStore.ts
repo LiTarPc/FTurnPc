@@ -1,9 +1,10 @@
-const KEY = 'wdtt_theme';
+const KEY = 'fturn_theme';
+const OLD_KEY = 'wdtt_theme';
 
 type Theme = 'light' | 'dark';
 type Listener = (t: Theme) => void;
 
-let current: Theme = (localStorage.getItem(KEY) as Theme) ?? 'light';
+let current: Theme = (localStorage.getItem(KEY) as Theme) ?? (localStorage.getItem(OLD_KEY) as Theme) ?? 'light';
 const listeners = new Set<Listener>();
 
 function apply(t: Theme) {
