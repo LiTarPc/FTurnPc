@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle, IconActivity } from '@tabler/icons-react';
+import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle, IconActivity, IconRefresh, IconDownload } from '@tabler/icons-react';
 import { settingsStore } from '../lib/store';
 import { tunnelStore } from '../lib/stores/tunnelStore';
 import type { AppSettings } from '../lib/types';
-import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT } from '../../wailsjs/go/backend/App';
+import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT, CheckCoreUpdate, UpdateCore, GetCoreVersion } from '../../wailsjs/go/backend/App';
 
 interface Props {
   onClose: () => void;
@@ -21,12 +21,55 @@ export default function Settings({ onClose }: Props) {
   const [natResult, setNatResult] = useState<any>(null);
   const [natLoading, setNatLoading] = useState(false);
 
-  // Sync autoStart from backend on open
+  // Core Update States
+  const [coreVer, setCoreVer] = useState<string>('Загрузка...');
+  const [coreUpdate, setCoreUpdate] = useState<any>(null);
+  const [coreChecking, setCoreChecking] = useState(false);
+  const [coreUpdating, setCoreUpdating] = useState(false);
+  const [coreProgress, setCoreProgress] = useState(0);
+
+  // Sync autoStart and GetCoreVersion on open
   useEffect(() => {
     GetAutoStart().then((v: any) => {
       if (v !== settings.autoStart) update('autoStart', v);
     });
+    GetCoreVersion().then((v: any) => setCoreVer(v || 'Не установлен'));
+
+    const w = window as any;
+    if (w.runtime?.EventsOn) {
+      w.runtime.EventsOn('core_update_progress', (p: number) => setCoreProgress(p));
+      w.runtime.EventsOn('core_update_done', () => {
+        setCoreUpdating(false);
+        GetCoreVersion().then((v: any) => setCoreVer(v || 'Установлен'));
+        setCoreUpdate(null);
+      });
+    }
   }, []);
+
+  const handleCheckCore = async () => {
+    setCoreChecking(true);
+    try {
+      const res = await CheckCoreUpdate();
+      setCoreUpdate(res);
+      if (res.currentVersion) setCoreVer(res.currentVersion);
+    } catch (e: any) {
+      console.error(e);
+    } finally {
+      setCoreChecking(false);
+    }
+  };
+
+  const handleDoCoreUpdate = async () => {
+    if (!coreUpdate?.downloadUrl && !coreUpdate?.hasUpdate) return;
+    setCoreUpdating(true);
+    setCoreProgress(5);
+    try {
+      await UpdateCore(coreUpdate.downloadUrl || '');
+    } catch (e: any) {
+      alert('Ошибка обновления ядра: ' + e);
+      setCoreUpdating(false);
+    }
+  };
 
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings(s => {
@@ -162,6 +205,39 @@ export default function Settings({ onClose }: Props) {
           <div className="st-row">
             <span>Обход RU-ресурсов</span>
             <button className={`st-toggle st-toggle--${settings.bypassRu ? 'on' : 'off'}`} onClick={() => update('bypassRu', !settings.bypassRu)} />
+          </div>
+
+          <div className="st-row">
+            <span>Автопроверка обновлений ядра</span>
+            <button className={`st-toggle st-toggle--${settings.autoUpdateCore !== false ? 'on' : 'off'}`} onClick={() => update('autoUpdateCore', settings.autoUpdateCore === false)} />
+          </div>
+
+          <div className="st-nat-box" style={{ marginTop: 12 }}>
+            <div className="st-nat-title"><IconRefresh size={14} /> Ядро FreeTurn (freeturnclient)</div>
+            <div className="st-nat-sub">Статус ядра: <strong>{coreVer}</strong></div>
+            {coreUpdate && (
+              <div className="st-nat-sub" style={{ color: coreUpdate.hasUpdate ? '#4ade80' : '#94a3b8', marginTop: 2 }}>
+                {coreUpdate.hasUpdate ? `Доступна новая версия: ${coreUpdate.latestVersion}` : 'Установлена актуальная версия ядра'}
+              </div>
+            )}
+            {coreUpdating && (
+              <div style={{ margin: '8px 0 4px 0', fontSize: '11px', color: '#60a5fa' }}>
+                Загрузка и установка: {coreProgress}%
+                <div style={{ background: '#334155', height: '4px', borderRadius: '2px', overflow: 'hidden', marginTop: '4px' }}>
+                  <div style={{ background: '#3b82f6', width: `${coreProgress}%`, height: '100%', transition: 'width 0.2s' }} />
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+              <button className="st-nat-btn" onClick={handleCheckCore} disabled={coreChecking || coreUpdating}>
+                {coreChecking ? 'Проверка...' : 'Проверить обновление'}
+              </button>
+              {coreUpdate?.hasUpdate && (
+                <button className="st-nat-btn" style={{ background: '#166534', color: '#ffffff' }} onClick={handleDoCoreUpdate} disabled={coreUpdating}>
+                  <IconDownload size={14} /> {coreUpdating ? 'Обновление...' : 'Обновить ядро'}
+                </button>
+              )}
+            </div>
           </div>
 
           <button

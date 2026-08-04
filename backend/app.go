@@ -130,3 +130,18 @@ func (a *App) ListProfiles() map[string]ProfileData {
 	}
 	return result
 }
+
+func (a *App) CheckCoreUpdate() (CoreUpdateInfo, error) {
+	return CheckCoreUpdate()
+}
+
+func (a *App) UpdateCore(downloadURL string) error {
+	if a.orch != nil && a.orch.IsRunning() {
+		a.orch.Stop()
+	}
+	return UpdateCore(a.ctx, downloadURL)
+}
+
+func (a *App) GetCoreVersion() string {
+	return GetCoreVersion()
+}

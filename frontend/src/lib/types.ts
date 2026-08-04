@@ -28,6 +28,7 @@ export interface AppSettings {
   hashes: [string, string, string, string];
   useGlobalHashes: boolean;
   bypassRu: boolean;
+  autoUpdateCore: boolean;
 }
 
 export type TunnelState = 'idle' | 'connecting' | 'connected' | 'disconnecting';
@@ -42,4 +43,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hashes: ['', '', '', ''],
   useGlobalHashes: false,
   bypassRu: false,
+  autoUpdateCore: true,
 };

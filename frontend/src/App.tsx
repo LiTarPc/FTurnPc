@@ -11,7 +11,7 @@ import { tunnelStore } from './lib/stores/tunnelStore';
 import type { LogLevel } from './lib/stores/logStore';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import { settingsStore } from './lib/store';
-import { SetTrayEnabled } from '../wailsjs/go/backend/App';
+import { SetTrayEnabled, CheckCoreUpdate } from '../wailsjs/go/backend/App';
 
 function useWdttPaste() {
   useEffect(() => {
@@ -63,6 +63,13 @@ export default function App() {
   useEffect(() => {
     const s = settingsStore.get();
     SetTrayEnabled(s.tray);
+    if (s.autoUpdateCore !== false) {
+      CheckCoreUpdate().then((info: any) => {
+        if (info?.hasUpdate) {
+          toastStore.show(`Доступно обновление ядра FreeTurn: ${info.latestVersion}`);
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   return (
