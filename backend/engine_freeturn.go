@@ -249,6 +249,15 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 				e.addTurnIP(host)
 			}
 		}
+		if strings.Contains(line, "TURN server IP:") {
+			parts := strings.Split(line, "TURN server IP:")
+			if len(parts) == 2 {
+				ipPort := strings.TrimSpace(parts[1])
+				ip, _, _ := strings.Cut(ipPort, ":")
+				e.addTurnIP(ip)
+			}
+		}
+
 		if strings.Contains(line, "server=") {
 			idx := strings.Index(line, "server=")
 			if idx != -1 {
@@ -284,8 +293,12 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 			}
 		}
 		
-		// FreeTurn client emits "Established DTLS connection" when a stream is ready
-		if strings.Contains(line, "Established DTLS connection") || strings.Contains(line, "activeConnectionCount") || strings.Contains(line, "stream is ready") {
+		// FreeTurn client emits "Established DTLS connection" or "TURN server IP:" when a stream is ready
+		if strings.Contains(line, "Established DTLS connection") ||
+			strings.Contains(line, "TURN server IP:") ||
+			strings.Contains(line, "activeConnectionCount") ||
+			strings.Contains(line, "stream is ready") ||
+			strings.Contains(line, "DTLS connection") {
 			e.mu.Lock()
 			shouldApply := !e.wgApplied
 			if shouldApply {
