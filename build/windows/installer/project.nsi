@@ -89,17 +89,24 @@ FunctionEnd
 
 Section
     !insertmacro wails.setShellContext
-
     !insertmacro wails.webview2runtime
-
     SetOutPath $INSTDIR
-
     !insertmacro wails.files
-    File "..\..\bin\freeturnclient.exe"
     File "..\..\bin\geoip-ru.txt"
+
     !ifdef SUPPORTS_AMD64
+        !ifFileExists "..\..\bin\client-windows-amd64.exe"
+            File "/oname=freeturnclient.exe" "..\..\bin\client-windows-amd64.exe"
+        !else
+            File "..\..\bin\freeturnclient.exe"
+        !endif
         File "/oname=wintun.dll" "..\..\..\assets\wintun_amd64.dll"
     !else
+        !ifFileExists "..\..\bin\client-windows-386.exe"
+            File "/oname=freeturnclient.exe" "..\..\bin\client-windows-386.exe"
+        !else
+            File "..\..\bin\freeturnclient.exe"
+        !endif
         File "/oname=wintun.dll" "..\..\..\assets\wintun_386.dll"
     !endif
 
