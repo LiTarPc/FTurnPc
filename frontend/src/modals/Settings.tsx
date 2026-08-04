@@ -3,7 +3,7 @@ import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle, IconActivity,
 import { settingsStore } from '../lib/store';
 import { tunnelStore } from '../lib/stores/tunnelStore';
 import type { AppSettings } from '../lib/types';
-import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT, CheckCoreUpdate, UpdateCore, GetCoreVersion } from '../../wailsjs/go/backend/App';
+import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT, CheckCoreUpdate, UpdateCore, GetCoreVersion, IsAdmin } from '../../wailsjs/go/backend/App';
 
 interface Props {
   onClose: () => void;
@@ -27,9 +27,11 @@ export default function Settings({ onClose }: Props) {
   const [coreChecking, setCoreChecking] = useState(false);
   const [coreUpdating, setCoreUpdating] = useState(false);
   const [coreProgress, setCoreProgress] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Sync autoStart and GetCoreVersion on open
   useEffect(() => {
+    IsAdmin().then(setIsAdmin).catch(() => {});
     GetAutoStart().then((v: any) => {
       if (v !== settings.autoStart) update('autoStart', v);
     });
@@ -210,6 +212,13 @@ export default function Settings({ onClose }: Props) {
           <div className="st-row">
             <span>Автопроверка обновлений ядра</span>
             <button className={`st-toggle st-toggle--${settings.autoUpdateCore !== false ? 'on' : 'off'}`} onClick={() => update('autoUpdateCore', settings.autoUpdateCore === false)} />
+          </div>
+
+          <div className="st-row">
+            <span>Права процесса</span>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: isAdmin ? '#4ade80' : '#94a3b8' }}>
+              {isAdmin ? 'Администратор' : 'Пользователь'}
+            </span>
           </div>
 
           <div className="st-nat-box" style={{ marginTop: 12 }}>

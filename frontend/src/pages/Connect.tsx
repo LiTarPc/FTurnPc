@@ -79,7 +79,7 @@ import { logStore } from '../lib/stores/logStore';
 import { wdttLinkStore } from '../lib/utils/wdttLink';
 import { SaveProfile } from '../../wailsjs/go/backend/App';
 import type { Server, TunnelState } from '../lib/types';
-import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles, DeleteProfile } from '../../wailsjs/go/backend/App';
+import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles, DeleteProfile, IsAdmin, RelaunchAsAdmin } from '../../wailsjs/go/backend/App';
 
 const PING_COLORS: Record<string, string> = {
   good: '#22c55e',
@@ -237,6 +237,29 @@ export default function Connect() {
   const [tunnelState, setTunnelState] = useState<TunnelState>(() => tunnelStore.get());
   useEffect(() => tunnelStore.subscribe(setTunnelState), []);
 
+  const [mode, setMode] = useState<'SOCKS5' | 'TUN'>(() => settingsStore.get().mode || 'SOCKS5');
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+
+  useEffect(() => {
+    IsAdmin().then(setIsAdmin).catch(() => {});
+  }, []);
+
+  const handleModeChange = async (newMode: 'SOCKS5' | 'TUN') => {
+    if (newMode === 'TUN' && !isAdmin) {
+      const confirm = window.confirm('Для режима Full Tun необходимы права Администратора. Перезапустить приложение с правами Администратора?');
+      if (confirm) {
+        try {
+          await RelaunchAsAdmin();
+        } catch (e) {
+          toastStore.show('Не удалось запросить права администратора');
+        }
+      }
+      return;
+    }
+    settingsStore.save({ ...settingsStore.get(), mode: newMode });
+    setMode(newMode);
+  };
+
   useEffect(() => {
     if (tunnelState !== 'connected') {
       setStats(null);
@@ -321,11 +344,13 @@ export default function Connect() {
       const workers = cur.power || 10;
       const bypassRu = settingsStore.get().bypassRu;
       const mtu = Number(settingsStore.get().mtu) || 1300;
+      const currentMode = settingsStore.get().mode || 'SOCKS5';
       await WailsConnect({
         profile: cur.name,
         workers,
         mtu,
         bypassRu,
+        mode: currentMode,
       });
       logStore.push('INFO', 'WailsConnect вернул OK (процесс запущен)');
     } catch (e: any) {
@@ -496,6 +521,35 @@ export default function Connect() {
         }
         .power-icon--spinning {
           animation: spin 1.5s linear infinite;
+        }
+        .mode-selector {
+          display: flex;
+          background: var(--button);
+          border: 1px solid var(--border);
+          border-radius: 20px;
+          padding: 2px;
+          gap: 2px;
+          margin-top: 4px;
+        }
+        .mode-btn {
+          padding: 4px 14px;
+          border-radius: 16px;
+          border: none;
+          background: transparent;
+          color: var(--text-3);
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .mode-btn--active {
+          background: var(--accent);
+          color: var(--accent-fg);
+          font-weight: 700;
+        }
+        .mode-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         @keyframes spin {
           from { transform: rotate(0deg); }
@@ -727,6 +781,23 @@ export default function Connect() {
           </button>
 
           <span className="tunnel-label">{selected ? TUNNEL_LABEL[tunnelState] : 'Нет серверов'}</span>
+
+          <div className="mode-selector">
+            <button
+              className={`mode-btn${mode === 'SOCKS5' ? ' mode-btn--active' : ''}`}
+              onClick={() => handleModeChange('SOCKS5')}
+              disabled={isBusy}
+            >
+              Socks5
+            </button>
+            <button
+              className={`mode-btn${mode === 'TUN' ? ' mode-btn--active' : ''}`}
+              onClick={() => handleModeChange('TUN')}
+              disabled={isBusy}
+            >
+              Full Tun
+            </button>
+          </div>
 
           {isActive && stats && (
             <div className="stats-card">

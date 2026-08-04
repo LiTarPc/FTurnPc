@@ -29,6 +29,7 @@ type FreeturnEngine struct {
 	configuredStreams int
 	muStreams         sync.Mutex
 	activeStreams     map[string]bool
+	mode              string
 	statsStop         chan struct{}
 	exitChan          chan struct{}
 }
@@ -67,6 +68,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.muIPs.Lock()
 	e.turnIPs = make(map[string]bool)
 	e.wgApplied = false
+	e.mode = p.Mode
 	e.muIPs.Unlock()
 
 	e.muStreams.Lock()
@@ -164,6 +166,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		e.mu.Unlock()
 		e.wg.Wait()
 		teardownWG()
+		_ = SetSystemProxy(false, "", false)
 
 		runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
 		runtime.EventsEmit(e.appCtx, "state_changed", "disconnected", "")
@@ -295,17 +298,34 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 
 			if shouldApply {
 				go func() {
-					runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Ожидание 6 сек, чтобы все потоки успели подключиться...")
+					runtime.EventsEmit(e.appCtx, "log", "INFO", "[FreeTurn] Ожидание 6 сек, чтобы все потоки успели подключиться...")
 					time.Sleep(6 * time.Second)
-					
+
+					if strings.EqualFold(e.mode, "SOCKS5") {
+						runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Включение системного прокси Windows...")
+						if err := SetSystemProxy(true, "socks=127.0.0.1:9000", bypassRu); err != nil {
+							msg := fmt.Sprintf("[Proxy] Ошибка включения системного прокси: %v", err)
+							runtime.EventsEmit(e.appCtx, "error", msg)
+							runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
+						} else {
+							runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
+							runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Системный прокси активен (Socks5 127.0.0.1:9000) ✓")
+							if e.onTray != nil {
+								e.onTray(true, 0, 0, 0)
+							}
+							e.startStatsLoop()
+						}
+						return
+					}
+
 					e.muIPs.Lock()
 					ips := make([]string, 0, len(e.turnIPs))
 					for ip := range e.turnIPs {
 						ips = append(ips, ip)
 					}
 					e.muIPs.Unlock()
-					
-					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига (исключения: %v)...", ips))
+
+					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига TUN (исключения: %v)...", ips))
 					
 					if err := applyWGConfig(wgConfig, ips, bypassRu, customMTU); err != nil {
 						msg := fmt.Sprintf("[WG] Ошибка применения конфига: %v", err)

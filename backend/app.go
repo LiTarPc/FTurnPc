@@ -55,6 +55,8 @@ func (a *App) Connect(p ConnectParams) error { return a.orch.Start(p) }
 func (a *App) Disconnect()                   { a.orch.Stop() }
 func (a *App) IsRunning() bool               { return a.orch.IsRunning() }
 func (a *App) CheckNAT() (*NATResult, error) { return CheckNATType() }
+func (a *App) IsAdmin() bool                 { return IsAdmin() }
+func (a *App) RelaunchAsAdmin() error        { return RelaunchAsAdmin() }
 
 // CheckVPN returns names of active VPN interfaces (excluding our wg-turn).
 func (a *App) CheckVPN() []string {

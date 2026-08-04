@@ -160,6 +160,7 @@ type ConnectParams struct {
 	Workers  int    `json:"workers,omitempty"`
 	MTU      int    `json:"mtu,omitempty"`
 	BypassRu bool   `json:"bypassRu,omitempty"`
+	Mode     string `json:"mode,omitempty"`
 }
 
 func loadProfile(name string) (*ProfileData, error) {

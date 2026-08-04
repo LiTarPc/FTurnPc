@@ -29,6 +29,7 @@ export interface AppSettings {
   useGlobalHashes: boolean;
   bypassRu: boolean;
   autoUpdateCore: boolean;
+  mode: 'SOCKS5' | 'TUN';
 }
 
 export type TunnelState = 'idle' | 'connecting' | 'connected' | 'disconnecting';
@@ -44,4 +45,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   useGlobalHashes: false,
   bypassRu: false,
   autoUpdateCore: true,
+  mode: 'SOCKS5',
 };
