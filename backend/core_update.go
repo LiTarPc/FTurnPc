@@ -116,9 +116,11 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 	for _, asset := range rel.Assets {
 		name := strings.ToLower(asset.Name)
 
-		// Сопоставление с ОС и архитектурой
-		matchOS := strings.Contains(name, goos) || (goos == "windows" && strings.HasSuffix(name, ".exe")) || (goos == "windows" && strings.Contains(name, "win"))
-		matchArch := strings.Contains(name, goarch) || (goarch == "amd64" && (strings.Contains(name, "x64") || strings.Contains(name, "64")))
+		// Сопоставление с ОС и архитектурой (учитывая как freeturnclient, так и client-windows-amd64)
+		matchOS := strings.Contains(name, goos) ||
+			(goos == "windows" && (strings.HasSuffix(name, ".exe") || strings.HasSuffix(name, ".zip") || strings.Contains(name, "win")))
+		matchArch := strings.Contains(name, goarch) ||
+			(goarch == "amd64" && (strings.Contains(name, "amd64") || strings.Contains(name, "x64") || strings.Contains(name, "64")))
 
 		if matchOS && (matchArch || len(rel.Assets) == 1) {
 			downloadURL = asset.BrowserDownloadURL
@@ -218,31 +220,52 @@ func UpdateCore(ctx context.Context, downloadURL string) error {
 			return fmt.Errorf("ошибка чтения zip-архива: %w", err)
 		}
 
-		targetExeName := "freeturnclient"
-		if goruntime.GOOS == "windows" {
-			targetExeName = "freeturnclient.exe"
-		}
-
-		found := false
+		// Ищем любой подходящий исполняемый файл внутри ZIP (client-windows-amd64.exe, freeturnclient.exe, client.exe и т.д.)
+		var candidate *zip.File
 		for _, f := range zipReader.File {
-			if strings.EqualFold(filepath.Base(f.Name), targetExeName) || strings.Contains(strings.ToLower(f.Name), "freeturnclient") {
-				rc, err := f.Open()
-				if err != nil {
-					return fmt.Errorf("ошибка открытия файла в zip: %w", err)
+			if f.FileInfo().IsDir() {
+				continue
+			}
+			fName := strings.ToLower(filepath.Base(f.Name))
+
+			// Если Windows — отдаем приоритет .exe файлам или файлам с client
+			if goruntime.GOOS == "windows" {
+				if strings.HasSuffix(fName, ".exe") || strings.Contains(fName, "client") {
+					candidate = f
+					break
 				}
-				extracted, err := io.ReadAll(rc)
-				rc.Close()
-				if err != nil {
-					return fmt.Errorf("ошибка распаковки: %w", err)
+			} else {
+				if strings.Contains(fName, "client") || !strings.Contains(fName, ".") {
+					candidate = f
+					break
 				}
-				exeBytes = extracted
-				found = true
-				break
 			}
 		}
-		if !found {
-			return fmt.Errorf("в zip-архиве не найден исполняемый файл freeturnclient")
+
+		// Если явно с "client" не нашли, берем первый попавшийся не папочный файл
+		if candidate == nil {
+			for _, f := range zipReader.File {
+				if !f.FileInfo().IsDir() {
+					candidate = f
+					break
+				}
+			}
 		}
+
+		if candidate == nil {
+			return fmt.Errorf("в zip-архиве не найдено подходящих файлов для установки")
+		}
+
+		rc, err := candidate.Open()
+		if err != nil {
+			return fmt.Errorf("ошибка открытия файла %s в zip: %w", candidate.Name, err)
+		}
+		extracted, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return fmt.Errorf("ошибка распаковки %s: %w", candidate.Name, err)
+		}
+		exeBytes = extracted
 	} else {
 		exeBytes = bodyBytes.Bytes()
 	}
