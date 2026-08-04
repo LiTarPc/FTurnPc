@@ -30,6 +30,7 @@ type FreeturnEngine struct {
 	muStreams         sync.Mutex
 	activeStreams     map[string]bool
 	mode              string
+	proxyServer       *LocalProxyServer
 	statsStop         chan struct{}
 	exitChan          chan struct{}
 }
@@ -166,6 +167,12 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		e.mu.Unlock()
 		e.wg.Wait()
 		teardownWG()
+		e.mu.Lock()
+		if e.proxyServer != nil {
+			e.proxyServer.Stop()
+			e.proxyServer = nil
+		}
+		e.mu.Unlock()
 		_ = SetSystemProxy(false, "", false)
 
 		runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
@@ -302,14 +309,26 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 					time.Sleep(6 * time.Second)
 
 					if strings.EqualFold(e.mode, "SOCKS5") {
+						runtime.EventsEmit(e.appCtx, "log", "INFO", "[ProxyServer] Запуск локального SOCKS5 & HTTP прокси сервера...")
+						proxySrv := NewLocalProxyServer(bypassRu)
+						if err := proxySrv.Start("127.0.0.1:1080", "127.0.0.1:1081"); err != nil {
+							msg := fmt.Sprintf("[ProxyServer] Ошибка запуска: %v", err)
+							runtime.EventsEmit(e.appCtx, "error", msg)
+							runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
+							return
+						}
+						e.mu.Lock()
+						e.proxyServer = proxySrv
+						e.mu.Unlock()
+
 						runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Включение системного прокси Windows...")
-						if err := SetSystemProxy(true, "socks=127.0.0.1:9000", bypassRu); err != nil {
+						if err := SetSystemProxy(true, "http=127.0.0.1:1081;socks=127.0.0.1:1080", bypassRu); err != nil {
 							msg := fmt.Sprintf("[Proxy] Ошибка включения системного прокси: %v", err)
 							runtime.EventsEmit(e.appCtx, "error", msg)
 							runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
 						} else {
 							runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
-							runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Системный прокси активен (Socks5 127.0.0.1:9000) ✓")
+							runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Системный прокси активен (SOCKS5: 127.0.0.1:1080 / HTTP: 127.0.0.1:1081) ✓")
 							if e.onTray != nil {
 								e.onTray(true, 0, 0, 0)
 							}
