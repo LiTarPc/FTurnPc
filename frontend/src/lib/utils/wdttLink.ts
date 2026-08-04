@@ -11,6 +11,21 @@ export interface WdttLink {
   links?: string;
 }
 
+function decodeB64String(b64: string): string | null {
+  try {
+    let clean = b64.trim();
+    clean = clean.replace(/-/g, '+').replace(/_/g, '/');
+    while (clean.length % 4 !== 0) {
+      clean += '=';
+    }
+    const binString = atob(clean);
+    const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0) || 0);
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
 export function parseWdttUrl(raw: string): WdttLink | null {
   try {
     let str = raw.trim();
@@ -48,20 +63,19 @@ export function parseWdttUrl(raw: string): WdttLink | null {
     }
 
     // 2. Base64 JSON decode
-    try {
-      const b64 = str.trim();
-      const binString = atob(b64);
-      const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0) || 0);
-      const jsonStr = new TextDecoder().decode(bytes);
-      const parsed = JSON.parse(jsonStr) as WdttLink;
-      if (linksUrl) {
-        parsed.links = linksUrl;
+    const jsonStr = decodeB64String(str);
+    if (jsonStr) {
+      try {
+        const parsed = JSON.parse(jsonStr) as WdttLink;
+        if (parsed && typeof parsed === 'object') {
+          if (linksUrl) parsed.links = linksUrl;
+          if (!parsed.name) parsed.name = "Server";
+          return parsed;
+        }
+      } catch (e) {
+        console.warn("JSON parse error after Base64 decode:", e);
       }
-      if (!parsed.name) {
-        parsed.name = "Server";
-      }
-      return parsed;
-    } catch {}
+    }
 
     // 3. WireGuard .conf format check
     if (str.includes('[Interface]') || str.includes('[Peer]')) {
