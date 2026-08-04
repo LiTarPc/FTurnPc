@@ -39,6 +39,8 @@ export default function AddServer({ onClose, onAdd }: Props) {
         cid: parsed.cid || '',
         wg: parsed.wg || '',
         links: parsed.links || '',
+        power: parsed.power || 9,
+        streamsPerCred: parsed.streamsPerCred || 5,
       } as any);
     } catch (e) {
       console.warn('SaveProfile failed:', e);
@@ -56,6 +58,8 @@ export default function AddServer({ onClose, onAdd }: Props) {
       cid: parsed.cid || '',
       wg: parsed.wg || '',
       links: parsed.links || '',
+      power: parsed.power || 9,
+      streamsPerCred: parsed.streamsPerCred || 5,
     });
     onClose();
   };
