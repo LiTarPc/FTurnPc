@@ -21,7 +21,8 @@ var (
 func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) error {
 	teardownWG()
 
-	addr, mtu, allowedIPs, _, wgConf := parseWGConfig(conf)
+	addr, mtu, allowedIPs, dnsServers, wgConf := parseWGConfig(conf)
+	_ = dnsServers
 	if addr == "" {
 		return fmt.Errorf("Address not found in wg config")
 	}
@@ -82,9 +83,6 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 			excludes = append(excludes, ip+"/32")
 		}
 		excludes = append(excludes, vkExcludeCIDRs...)
-		for _, dns := range localDNSServers() {
-			excludes = append(excludes, dns+"/32")
-		}
 
 		if bypassRu {
 			ruCIDRs := loadGeoIPRuCIDRs()

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/things-go/go-socks5"
@@ -23,6 +24,8 @@ type Socks5Instance struct {
 	tnet     *netstack.Net
 	rxBytes  int64
 	txBytes  int64
+	mu       sync.Mutex
+	stopped  bool
 }
 
 type countingConn struct {
@@ -36,16 +39,20 @@ type netstackResolver struct {
 }
 
 func (r *netstackResolver) Resolve(ctx context.Context, name string) (context.Context, net.IP, error) {
+	// If name is already a valid IP, return it directly without DNS lookup
+	if ip := net.ParseIP(name); ip != nil {
+		return ctx, ip, nil
+	}
 	addrs, err := r.tnet.LookupContextHost(ctx, name)
 	if err != nil || len(addrs) == 0 {
-		return ctx, nil, err
+		return ctx, nil, fmt.Errorf("netstack DNS lookup %s: %w", name, err)
 	}
 	for _, a := range addrs {
 		if ip := net.ParseIP(a); ip != nil {
 			return ctx, ip, nil
 		}
 	}
-	return ctx, nil, fmt.Errorf("no valid IP for %s", name)
+	return ctx, nil, fmt.Errorf("no valid IP found for %s", name)
 }
 
 func (c *countingConn) Read(b []byte) (int, error) {
@@ -74,11 +81,15 @@ func StartNetstackSocks5(wgConfig string, listenAddr string, customMTU int) (*So
 	if customMTU >= 576 && customMTU <= 1500 {
 		mtu = customMTU
 	} else if mtuStr != "" {
-		fmt.Sscanf(mtuStr, "%d", &mtu)
+		var parsedMTU int
+		if _, err := fmt.Sscanf(mtuStr, "%d", &parsedMTU); err == nil && parsedMTU >= 576 && parsedMTU <= 1500 {
+			mtu = parsedMTU
+		}
 	}
 
-	hostIP, _, _ := parseCIDR(addrStr)
-	if hostIP == "" {
+	hostIP, _, err := parseCIDR(addrStr)
+	if err != nil || hostIP == "" {
+		log.Printf("[SOCKS5-WG] Warning parsing CIDR %q: %v, attempting raw IP parse", addrStr, err)
 		hostIP = addrStr
 	}
 	localAddr, err := netip.ParseAddr(hostIP)
@@ -126,6 +137,11 @@ func StartNetstackSocks5(wgConfig string, listenAddr string, customMTU int) (*So
 
 	socksServer := socks5.NewServer(
 		socks5.WithResolver(&netstackResolver{tnet: tnet}),
+		socks5.WithRule(&socks5.PermitCommand{
+			EnableConnect:   true,
+			EnableBind:      false,
+			EnableAssociate: false,
+		}),
 		socks5.WithDial(func(ctx context.Context, network, addr string) (net.Conn, error) {
 			conn, err := tnet.DialContext(ctx, network, addr)
 			if err != nil {
@@ -148,7 +164,7 @@ func StartNetstackSocks5(wgConfig string, listenAddr string, customMTU int) (*So
 	inst.listener = listener
 
 	go func() {
-		log.Printf("[SOCKS5-WG] SOCKS5 server listening on %s", listenAddr)
+		log.Printf("[SOCKS5-WG] SOCKS5 server listening on %s (CONNECT only, netstack DNS)", listenAddr)
 		if err := socksServer.Serve(listener); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
 			log.Printf("[SOCKS5-WG] SOCKS5 serve error: %v", err)
 		}
@@ -161,13 +177,23 @@ func (s *Socks5Instance) Stop() {
 	if s == nil {
 		return
 	}
-	if s.listener != nil {
-		_ = s.listener.Close()
-		s.listener = nil
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return
 	}
-	if s.dev != nil {
-		s.dev.Close()
-		s.dev = nil
+	s.stopped = true
+	listener := s.listener
+	dev := s.dev
+	s.listener = nil
+	s.dev = nil
+	s.mu.Unlock()
+
+	if listener != nil {
+		_ = listener.Close()
+	}
+	if dev != nil {
+		dev.Close()
 	}
 	log.Printf("[SOCKS5-WG] SOCKS5 netstack instance stopped")
 }

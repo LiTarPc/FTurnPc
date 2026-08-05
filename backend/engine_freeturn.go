@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -156,8 +157,8 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	}
 
 	e.wg.Add(2)
-	go e.parseLogs(stdout, prof.WGConfig, p.BypassRu, p.MTU)
-	go e.parseLogs(stderr, prof.WGConfig, p.BypassRu, p.MTU)
+	go e.parseLogs(ctx, stdout, prof.WGConfig, p.BypassRu, p.MTU)
+	go e.parseLogs(ctx, stderr, prof.WGConfig, p.BypassRu, p.MTU)
 
 	go func() {
 		defer close(e.exitChan)
@@ -225,7 +226,7 @@ func (e *FreeturnEngine) IsRunning() bool {
 	return e.cmd != nil
 }
 
-func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgConfig string, bypassRu bool, customMTU int) {
+func (e *FreeturnEngine) parseLogs(sessCtx context.Context, r interface{ Read([]byte) (int, error) }, wgConfig string, bypassRu bool, customMTU int) {
 	defer e.wg.Done()
 	scanner := bufio.NewScanner(r)
 
@@ -318,9 +319,22 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 			e.mu.Unlock()
 
 			if shouldApply {
-				go func() {
+				go func(ctx context.Context) {
 					runtime.EventsEmit(e.appCtx, "log", "INFO", "[FreeTurn] Ожидание 6 сек, чтобы все потоки успели подключиться...")
-					time.Sleep(6 * time.Second)
+					select {
+					case <-time.After(6 * time.Second):
+					case <-ctx.Done():
+						log.Printf("[FreeTurn] Сессия отменена во время ожидания, отмена применения.")
+						return
+					}
+
+					e.mu.Lock()
+					isStillRunning := e.cmd != nil && e.wgApplied && ctx.Err() == nil
+					e.mu.Unlock()
+					if !isStillRunning {
+						log.Printf("[FreeTurn] Сессия завершена до применения конфига, отмена.")
+						return
+					}
 
 					if strings.EqualFold(e.mode, "SOCKS5") {
 						runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Инициализация SOCKS5 через userspace Netstack (порт 1080)...")
@@ -336,6 +350,12 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 						}
 
 						e.mu.Lock()
+						if e.cmd == nil || ctx.Err() != nil {
+							e.mu.Unlock()
+							socksInst.Stop()
+							log.Printf("[Proxy] Сессия отменена во время старта SOCKS5, остановочный инстанс закрыт.")
+							return
+						}
 						e.socksInstance = socksInst
 						e.mu.Unlock()
 
@@ -364,6 +384,14 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 
 					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига TUN (исключения: %v)...", ips))
 					
+					e.mu.Lock()
+					if e.cmd == nil || ctx.Err() != nil {
+						e.mu.Unlock()
+						log.Printf("[WG] Сессия отменена до применения TUN, отмена.")
+						return
+					}
+					e.mu.Unlock()
+
 					if err := applyWGConfig(wgConfig, ips, bypassRu, customMTU); err != nil {
 						msg := fmt.Sprintf("[WG] Ошибка применения конфига: %v", err)
 						runtime.EventsEmit(e.appCtx, "error", msg)
@@ -388,7 +416,7 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 							}
 						}()
 					}
-				}()
+				}(sessCtx)
 			}
 		}
 		

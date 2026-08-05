@@ -26,10 +26,6 @@ var vkExcludeCIDRs = []string{
 	"185.16.28.0/22",   // VK
 	"194.67.64.0/18",   // VK
 	"195.82.146.0/23",  // VK
-	"213.180.193.0/24", // Яндекс DNS
-	"77.88.0.0/18",     // Яндекс
-	"8.8.8.0/24",       // Google DNS
-	"1.1.1.0/24",       // Cloudflare DNS
 }
 
 // wg-quick-only fields that wg setconf doesn't understand
