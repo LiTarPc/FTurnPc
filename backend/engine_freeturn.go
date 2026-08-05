@@ -30,7 +30,7 @@ type FreeturnEngine struct {
 	muStreams         sync.Mutex
 	activeStreams     map[string]bool
 	mode              string
-	proxyServer       *LocalProxyServer
+	socksInstance     *Socks5Instance
 	statsStop         chan struct{}
 	exitChan          chan struct{}
 }
@@ -167,13 +167,15 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		e.mu.Unlock()
 		e.wg.Wait()
 		teardownWG()
-		e.mu.Lock()
-		if e.proxyServer != nil {
-			e.proxyServer.Stop()
-			e.proxyServer = nil
-		}
-		e.mu.Unlock()
 		_ = SetSystemProxy(false, "", false)
+
+		e.mu.Lock()
+		socksInst := e.socksInstance
+		e.socksInstance = nil
+		e.mu.Unlock()
+		if socksInst != nil {
+			socksInst.Stop()
+		}
 
 		runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
 		runtime.EventsEmit(e.appCtx, "state_changed", "disconnected", "")
@@ -194,11 +196,17 @@ func (e *FreeturnEngine) Stop() {
 	cancel := e.cancel
 	cmd := e.cmd
 	exitChan := e.exitChan
+	socksInst := e.socksInstance
+	e.socksInstance = nil
 	e.mu.Unlock()
 
 	e.mu.Lock()
 	e.stopStatsLoopLocked()
 	e.mu.Unlock()
+
+	if socksInst != nil {
+		socksInst.Stop()
+	}
 
 	if cancel != nil {
 		cancel()
@@ -281,8 +289,14 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 			e.mu.Lock()
 			wasApplied := e.wgApplied
 			e.wgApplied = false
+			socksInst := e.socksInstance
+			e.socksInstance = nil
 			e.mu.Unlock()
 
+			if socksInst != nil {
+				socksInst.Stop()
+			}
+			_ = SetSystemProxy(false, "", false)
 			teardownWG()
 			
 			if wasApplied {
@@ -309,26 +323,30 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 					time.Sleep(6 * time.Second)
 
 					if strings.EqualFold(e.mode, "SOCKS5") {
-						runtime.EventsEmit(e.appCtx, "log", "INFO", "[ProxyServer] Запуск локального SOCKS5 & HTTP прокси сервера...")
-						proxySrv := NewLocalProxyServer(bypassRu)
-						if err := proxySrv.Start("127.0.0.1:1080", "127.0.0.1:1081"); err != nil {
-							msg := fmt.Sprintf("[ProxyServer] Ошибка запуска: %v", err)
+						runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Инициализация SOCKS5 через userspace Netstack (порт 1080)...")
+						socksInst, err := StartNetstackSocks5(wgConfig, "127.0.0.1:1080", customMTU)
+						if err != nil {
+							msg := fmt.Sprintf("[Proxy] Ошибка запуска SOCKS5 движка: %v", err)
 							runtime.EventsEmit(e.appCtx, "error", msg)
 							runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
+							e.mu.Lock()
+							e.wgApplied = false
+							e.mu.Unlock()
 							return
 						}
+
 						e.mu.Lock()
-						e.proxyServer = proxySrv
+						e.socksInstance = socksInst
 						e.mu.Unlock()
 
 						runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Включение системного прокси Windows...")
-						if err := SetSystemProxy(true, "http=127.0.0.1:1081;socks=127.0.0.1:1080", bypassRu); err != nil {
+						if err := SetSystemProxy(true, "socks=127.0.0.1:1080", bypassRu); err != nil {
 							msg := fmt.Sprintf("[Proxy] Ошибка включения системного прокси: %v", err)
 							runtime.EventsEmit(e.appCtx, "error", msg)
 							runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
 						} else {
 							runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
-							runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Системный прокси активен (SOCKS5: 127.0.0.1:1080 / HTTP: 127.0.0.1:1081) ✓")
+							runtime.EventsEmit(e.appCtx, "log", "INFO", "[Proxy] Системный прокси активен (Socks5 127.0.0.1:1080) ✓")
 							if e.onTray != nil {
 								e.onTray(true, 0, 0, 0)
 							}
@@ -425,9 +443,21 @@ func (e *FreeturnEngine) startStatsLoop() {
 		for {
 			select {
 			case <-t.C:
-				rx, tx, err := getInterfaceBytes("wg-turn")
-				if err != nil {
-					continue
+				var rx, tx int64
+				var err error
+
+				if strings.EqualFold(e.mode, "SOCKS5") {
+					e.mu.Lock()
+					inst := e.socksInstance
+					e.mu.Unlock()
+					if inst != nil {
+						rx, tx = inst.GetBytes()
+					}
+				} else {
+					rx, tx, err = getInterfaceBytes("wg-turn")
+					if err != nil {
+						continue
+					}
 				}
 				
 				e.muStreams.Lock()
