@@ -31,6 +31,23 @@ type countingConn struct {
 	tx *int64
 }
 
+type netstackResolver struct {
+	tnet *netstack.Net
+}
+
+func (r *netstackResolver) Resolve(ctx context.Context, name string) (context.Context, net.IP, error) {
+	addrs, err := r.tnet.LookupContextHost(ctx, name)
+	if err != nil || len(addrs) == 0 {
+		return ctx, nil, err
+	}
+	for _, a := range addrs {
+		if ip := net.ParseIP(a); ip != nil {
+			return ctx, ip, nil
+		}
+	}
+	return ctx, nil, fmt.Errorf("no valid IP for %s", name)
+}
+
 func (c *countingConn) Read(b []byte) (int, error) {
 	n, err := c.Conn.Read(b)
 	if n > 0 {
@@ -108,9 +125,11 @@ func StartNetstackSocks5(wgConfig string, listenAddr string, customMTU int) (*So
 	}
 
 	socksServer := socks5.NewServer(
+		socks5.WithResolver(&netstackResolver{tnet: tnet}),
 		socks5.WithDial(func(ctx context.Context, network, addr string) (net.Conn, error) {
 			conn, err := tnet.DialContext(ctx, network, addr)
 			if err != nil {
+				log.Printf("[SOCKS5-WG] Dial error for %s: %v", addr, err)
 				return nil, err
 			}
 			return &countingConn{
