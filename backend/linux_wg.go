@@ -82,9 +82,6 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 			excludes = append(excludes, ip+"/32")
 		}
 		excludes = append(excludes, vkExcludeCIDRs...)
-		for _, dns := range localDNSServers() {
-			excludes = append(excludes, dns+"/32")
-		}
 
 		if bypassRu {
 			ruCIDRs := loadGeoIPRuCIDRs()

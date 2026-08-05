@@ -104,11 +104,6 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 				routes = append(routes, "net:"+cidr)
 			}
 		}
-		for _, dns := range localDNSServers() {
-			if run("route", "add", "-host", dns, gw) == nil {
-				routes = append(routes, "host:"+dns)
-			}
-		}
 	}
 	for _, cidr := range allowedIPs {
 		if run("route", "add", "-net", cidr, "-interface", ifaceName) == nil {
