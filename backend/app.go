@@ -136,10 +136,12 @@ func (a *App) CheckCoreUpdate() (CoreUpdateInfo, error) {
 }
 
 func (a *App) UpdateCore(downloadURL string) error {
-	if a.orch != nil && a.orch.IsRunning() {
-		a.orch.Stop()
+	stopFn := func() {
+		if a.orch != nil && a.orch.IsRunning() {
+			a.orch.Stop()
+		}
 	}
-	return UpdateCore(a.ctx, downloadURL)
+	return UpdateCore(a.ctx, downloadURL, stopFn)
 }
 
 func (a *App) GetCoreVersion() string {

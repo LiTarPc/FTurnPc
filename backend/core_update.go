@@ -152,7 +152,7 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 }
 
 // UpdateCore скачивает и обновляет freeturnclient
-func UpdateCore(ctx context.Context, downloadURL string) error {
+func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func()) error {
 	if downloadURL == "" {
 		info, err := CheckCoreUpdate()
 		if err != nil {
@@ -167,7 +167,12 @@ func UpdateCore(ctx context.Context, downloadURL string) error {
 	log.Printf("[CoreUpdate] Загрузка обновления ядра с %s...", downloadURL)
 	runtime.EventsEmit(ctx, "core_update_progress", 5)
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+		},
+		Timeout: 60 * time.Second,
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if err != nil {
 		return err
@@ -268,6 +273,13 @@ func UpdateCore(ctx context.Context, downloadURL string) error {
 		exeBytes = extracted
 	} else {
 		exeBytes = bodyBytes.Bytes()
+	}
+
+	// Остановка активного процесса перед заменой бинарника на диске
+	if beforeReplaceFn != nil {
+		log.Printf("[CoreUpdate] Загрузка завершена. Остановка текущей сессии перед заменой бинарного файла...")
+		beforeReplaceFn()
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	// Определение целевого пути для установки
