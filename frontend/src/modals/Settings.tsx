@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle, IconActivity, IconRefresh, IconDownload } from '@tabler/icons-react';
+import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle, IconActivity, IconRefresh, IconDownload, IconFolderOpen } from '@tabler/icons-react';
 import { settingsStore } from '../lib/store';
 import { tunnelStore } from '../lib/stores/tunnelStore';
 import type { AppSettings } from '../lib/types';
-import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT, CheckCoreUpdate, UpdateCore, GetCoreVersion } from '../../wailsjs/go/backend/App';
+import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT, CheckCoreUpdate, UpdateCore, GetCoreVersion, SelectAndReplaceCore } from '../../wailsjs/go/backend/App';
 
 interface Props {
   onClose: () => void;
@@ -68,6 +68,17 @@ export default function Settings({ onClose }: Props) {
     } catch (e: any) {
       alert('Ошибка обновления ядра: ' + e);
       setCoreUpdating(false);
+    }
+  };
+
+  const handleSelectCoreFile = async () => {
+    try {
+      const newVer = await SelectAndReplaceCore();
+      if (newVer) {
+        setCoreVer(newVer);
+      }
+    } catch (e: any) {
+      alert('Ошибка при замене ядра: ' + e);
     }
   };
 
@@ -228,7 +239,7 @@ export default function Settings({ onClose }: Props) {
                 </div>
               </div>
             )}
-            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
               <button className="st-nat-btn" onClick={handleCheckCore} disabled={coreChecking || coreUpdating}>
                 {coreChecking ? 'Проверка...' : 'Проверить обновление'}
               </button>
@@ -237,6 +248,9 @@ export default function Settings({ onClose }: Props) {
                   <IconDownload size={14} /> {coreUpdating ? 'Обновление...' : 'Обновить ядро'}
                 </button>
               )}
+              <button className="st-nat-btn" onClick={handleSelectCoreFile} disabled={coreUpdating} title="Выбрать файл freeturnclient вручную с диска">
+                <IconFolderOpen size={14} /> Заменить ядро
+              </button>
             </div>
           </div>
 

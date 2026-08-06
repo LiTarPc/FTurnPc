@@ -147,3 +147,12 @@ func (a *App) UpdateCore(downloadURL string) error {
 func (a *App) GetCoreVersion() string {
 	return GetCoreVersion()
 }
+
+func (a *App) SelectAndReplaceCore() (string, error) {
+	stopFn := func() {
+		if a.orch != nil && a.orch.IsRunning() {
+			a.orch.Stop()
+		}
+	}
+	return SelectAndReplaceCore(a.ctx, stopFn)
+}

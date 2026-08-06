@@ -108,36 +108,64 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 	info.ReleaseNotes = rel.Body
 	info.PublishedAt = rel.PublishedAt
 
-	// Ищем наиболее подходящий ассет для текущей ОС и архитектуры
+	// Ищем наиболее подходящий ассет КЛИЕНТА (не сервера!) для текущей ОС и архитектуры
 	downloadURL := ""
 	goos := goruntime.GOOS
 	goarch := goruntime.GOARCH
 
+	// 1. Точный поиск: клиент + ОС + архитектура
 	for _, asset := range rel.Assets {
 		name := strings.ToLower(asset.Name)
 
-		// Сопоставление с ОС и архитектурой (учитывая как freeturnclient, так и client-windows-amd64)
-		matchOS := strings.Contains(name, goos) ||
-			(goos == "windows" && (strings.HasSuffix(name, ".exe") || strings.HasSuffix(name, ".zip") || strings.Contains(name, "win")))
-		matchArch := strings.Contains(name, goarch) ||
-			(goarch == "amd64" && (strings.Contains(name, "amd64") || strings.Contains(name, "x64") || strings.Contains(name, "64")))
+		// Исключаем серверные бинарники
+		if strings.Contains(name, "server") {
+			continue
+		}
 
-		if matchOS && (matchArch || len(rel.Assets) == 1) {
+		isClient := strings.Contains(name, "client") || strings.Contains(name, "freeturn")
+
+		matchOS := false
+		if goos == "windows" {
+			matchOS = strings.Contains(name, "win") || strings.Contains(name, "windows") || strings.HasSuffix(name, ".exe") || strings.HasSuffix(name, ".zip")
+		} else if goos == "darwin" {
+			matchOS = strings.Contains(name, "darwin") || strings.Contains(name, "mac") || strings.Contains(name, "apple")
+		} else if goos == "linux" {
+			matchOS = strings.Contains(name, "linux") && !strings.Contains(name, "android")
+		}
+
+		matchArch := false
+		if goarch == "amd64" {
+			matchArch = strings.Contains(name, "amd64") || strings.Contains(name, "x86_64") || strings.Contains(name, "x64")
+		} else if goarch == "arm64" {
+			matchArch = strings.Contains(name, "arm64") || strings.Contains(name, "aarch64")
+		} else if goarch == "386" {
+			matchArch = strings.Contains(name, "386") || strings.Contains(name, "x86") || strings.Contains(name, "32")
+		}
+
+		if isClient && matchOS && matchArch {
 			downloadURL = asset.BrowserDownloadURL
 			break
 		}
 	}
 
-	// Если специфичный ассет не найден, берем первый попавшийся подходящий по расширению
+	// 2. Мягкий поиск (если архитектура не указана в имени файла)
 	if downloadURL == "" {
 		for _, asset := range rel.Assets {
 			name := strings.ToLower(asset.Name)
-			if goos == "windows" && (strings.HasSuffix(name, ".exe") || strings.HasSuffix(name, ".zip")) {
-				downloadURL = asset.BrowserDownloadURL
-				break
-			} else if goos != "windows" && !strings.HasSuffix(name, ".exe") && !strings.HasSuffix(name, ".zip") {
-				downloadURL = asset.BrowserDownloadURL
-				break
+			if strings.Contains(name, "server") {
+				continue
+			}
+			if strings.Contains(name, "client") || strings.Contains(name, "freeturn") {
+				if goos == "windows" && (strings.Contains(name, "win") || strings.HasSuffix(name, ".exe") || strings.HasSuffix(name, ".zip")) {
+					downloadURL = asset.BrowserDownloadURL
+					break
+				} else if goos == "darwin" && (strings.Contains(name, "darwin") || strings.Contains(name, "mac")) {
+					downloadURL = asset.BrowserDownloadURL
+					break
+				} else if goos == "linux" && strings.Contains(name, "linux") {
+					downloadURL = asset.BrowserDownloadURL
+					break
+				}
 			}
 		}
 	}
@@ -317,4 +345,72 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 	runtime.EventsEmit(ctx, "core_update_done", "success")
 	log.Printf("[CoreUpdate] Ядро FreeTurn успешно обновлено!")
 	return nil
+}
+
+// SelectAndReplaceCore открывает диалог выбора файла и заменяет ядро freeturnclient выбранным файлом
+func SelectAndReplaceCore(ctx context.Context, beforeReplaceFn func()) (string, error) {
+	filterName := "Исполняемые файлы (*.exe, *)"
+	filterPattern := "*.exe;*"
+	if goruntime.GOOS != "windows" {
+		filterPattern = "*"
+	}
+
+	selectedFile, err := runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
+		Title: "Выберите исполняемый файл ядра (freeturnclient / client-*.exe)",
+		Filters: []runtime.FileFilter{
+			{DisplayName: filterName, Pattern: filterPattern},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("ошибка открытия диалога выбора файла: %w", err)
+	}
+	if selectedFile == "" {
+		return "", nil // Пользователь отменил выбор
+	}
+
+	data, err := os.ReadFile(selectedFile)
+	if err != nil {
+		return "", fmt.Errorf("не удалось прочитать выбранный файл: %w", err)
+	}
+
+	if len(data) < 1024 {
+		return "", fmt.Errorf("выбранный файл слишком мал или повреждён (%d байт)", len(data))
+	}
+
+	// Остановка активного процесса перед заменой бинарника
+	if beforeReplaceFn != nil {
+		log.Printf("[CoreUpdate] Остановка текущей сессии перед ручной заменой файла ядра...")
+		beforeReplaceFn()
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	targetPath := getFreeturnPath()
+	if targetPath == "" || strings.Contains(targetPath, "LookPath") {
+		exe, _ := os.Executable()
+		exeName := "freeturnclient"
+		if goruntime.GOOS == "windows" {
+			exeName = "freeturnclient.exe"
+		}
+		targetPath = filepath.Join(filepath.Dir(exe), exeName)
+	}
+
+	oldBackupPath := targetPath + ".old"
+	_ = os.Remove(oldBackupPath)
+
+	if _, err := os.Stat(targetPath); err == nil {
+		_ = os.Rename(targetPath, oldBackupPath)
+	}
+
+	if err := os.WriteFile(targetPath, data, 0755); err != nil {
+		if _, statErr := os.Stat(oldBackupPath); statErr == nil {
+			_ = os.Rename(oldBackupPath, targetPath)
+		}
+		return "", fmt.Errorf("не удалось записать файл ядра: %w", err)
+	}
+	_ = os.Remove(oldBackupPath)
+
+	newVersion := GetCoreVersion()
+	runtime.EventsEmit(ctx, "core_update_done", "success")
+	log.Printf("[CoreUpdate] Ядро успешно заменено вручную из %s. Новая версия: %s", selectedFile, newVersion)
+	return newVersion, nil
 }
