@@ -117,8 +117,8 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 	for _, asset := range rel.Assets {
 		name := strings.ToLower(asset.Name)
 
-		// Исключаем серверные бинарники
-		if strings.Contains(name, "server") {
+		// Исключаем серверные бинарники и неисполняемые файлы
+		if strings.Contains(name, "server") || strings.HasSuffix(name, ".jar") || strings.HasSuffix(name, ".aar") || strings.HasSuffix(name, ".txt") {
 			continue
 		}
 
@@ -126,9 +126,10 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 
 		matchOS := false
 		if goos == "windows" {
-			matchOS = strings.Contains(name, "win") || strings.Contains(name, "windows") || strings.HasSuffix(name, ".exe") || strings.HasSuffix(name, ".zip")
+			// Важно: проверяем "windows" или расширение ".exe", чтобы не сработать на "darwin"
+			matchOS = strings.Contains(name, "windows") || strings.Contains(name, "win32") || strings.Contains(name, "win64") || strings.HasSuffix(name, ".exe")
 		} else if goos == "darwin" {
-			matchOS = strings.Contains(name, "darwin") || strings.Contains(name, "mac") || strings.Contains(name, "apple")
+			matchOS = strings.Contains(name, "darwin") || strings.Contains(name, "macos") || strings.Contains(name, "osx") || strings.Contains(name, "apple")
 		} else if goos == "linux" {
 			matchOS = strings.Contains(name, "linux") && !strings.Contains(name, "android")
 		}
@@ -152,17 +153,17 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 	if downloadURL == "" {
 		for _, asset := range rel.Assets {
 			name := strings.ToLower(asset.Name)
-			if strings.Contains(name, "server") {
+			if strings.Contains(name, "server") || strings.HasSuffix(name, ".jar") || strings.HasSuffix(name, ".aar") || strings.HasSuffix(name, ".txt") {
 				continue
 			}
 			if strings.Contains(name, "client") || strings.Contains(name, "freeturn") {
-				if goos == "windows" && (strings.Contains(name, "win") || strings.HasSuffix(name, ".exe") || strings.HasSuffix(name, ".zip")) {
+				if goos == "windows" && (strings.Contains(name, "windows") || strings.HasSuffix(name, ".exe")) {
 					downloadURL = asset.BrowserDownloadURL
 					break
-				} else if goos == "darwin" && (strings.Contains(name, "darwin") || strings.Contains(name, "mac")) {
+				} else if goos == "darwin" && (strings.Contains(name, "darwin") || strings.Contains(name, "macos") || strings.Contains(name, "osx")) {
 					downloadURL = asset.BrowserDownloadURL
 					break
-				} else if goos == "linux" && strings.Contains(name, "linux") {
+				} else if goos == "linux" && strings.Contains(name, "linux") && !strings.Contains(name, "android") {
 					downloadURL = asset.BrowserDownloadURL
 					break
 				}
