@@ -25,6 +25,10 @@ func NewApp(trayIcon []byte) *App { return &App{trayIcon: trayIcon} }
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	a.orch = NewOrchestrator(ctx, a.updateTray)
+
+	// Очищаем зависшие сетевые правила (NRPT, брандмауэр) от прошлых некорректных завершений
+	CleanupNetworkLeftovers()
+
 	startTray(a.trayIcon,
 		func() { runtime.WindowShow(ctx) },
 		func() {

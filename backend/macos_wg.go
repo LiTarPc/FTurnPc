@@ -18,6 +18,10 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
+func CleanupNetworkLeftovers() {
+	// Для macOS очистка (пока не требуется на старте)
+}
+
 var (
 	activeDevice    *device.Device
 	activeTun       tun.Device

@@ -218,12 +218,16 @@ func applyDNSLeakProtection(dnsServers []string, ifIndex int) {
 	// 5. Блокировка DNS-запросов мимо туннеля через физический адаптер в брандмауэре Windows
 	if ifIndex > 0 {
 		if iface, err := net.InterfaceByIndex(ifIndex); err == nil && iface.Name != "" {
-			_ = run("netsh", "advfirewall", "firewall", "add", "rule",
-				"name=FTurn_Block_DNS_Leak_UDP", "dir=out", "action=block",
-				"protocol=UDP", "remoteport=53", "interface="+iface.Name)
-			_ = run("netsh", "advfirewall", "firewall", "add", "rule",
-				"name=FTurn_Block_DNS_Leak_TCP", "dir=out", "action=block",
-				"protocol=TCP", "remoteport=53", "interface="+iface.Name)
+			// На всякий случай удаляем старые правила
+			_ = run("powershell", "-NoProfile", "-NonInteractive", "-Command", "Remove-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_UDP' -ErrorAction SilentlyContinue")
+			_ = run("powershell", "-NoProfile", "-NonInteractive", "-Command", "Remove-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_TCP' -ErrorAction SilentlyContinue")
+
+			// Создаём новые через PowerShell
+			psCmdUDP := fmt.Sprintf("New-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_UDP' -Direction Outbound -Action Block -Protocol UDP -RemotePort 53 -InterfaceAlias '%s' -ErrorAction SilentlyContinue", iface.Name)
+			_ = run("powershell", "-NoProfile", "-NonInteractive", "-Command", psCmdUDP)
+
+			psCmdTCP := fmt.Sprintf("New-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_TCP' -Direction Outbound -Action Block -Protocol TCP -RemotePort 53 -InterfaceAlias '%s' -ErrorAction SilentlyContinue", iface.Name)
+			_ = run("powershell", "-NoProfile", "-NonInteractive", "-Command", psCmdTCP)
 		}
 	}
 
@@ -243,11 +247,16 @@ func teardownDNSLeakProtection() {
 		"/v", "DisableSmartNameResolution", "/f")
 
 	// 3. Удаление правил брандмауэра
-	_ = run("netsh", "advfirewall", "firewall", "delete", "rule", "name=FTurn_Block_DNS_Leak_UDP")
-	_ = run("netsh", "advfirewall", "firewall", "delete", "rule", "name=FTurn_Block_DNS_Leak_TCP")
+	_ = run("powershell", "-NoProfile", "-NonInteractive", "-Command", "Remove-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_UDP' -ErrorAction SilentlyContinue")
+	_ = run("powershell", "-NoProfile", "-NonInteractive", "-Command", "Remove-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_TCP' -ErrorAction SilentlyContinue")
 
 	// 4. Сброс DNS-кэша
 	_ = run("ipconfig", "/flushdns")
+}
+
+func CleanupNetworkLeftovers() {
+	// Очищаем зависшие правила NRPT и брандмауэра при запуске (если приложение упало)
+	teardownDNSLeakProtection()
 }
 
 func teardownWG() {
