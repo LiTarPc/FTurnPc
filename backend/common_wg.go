@@ -160,17 +160,6 @@ func loadGeoIPRuCIDRs() []string {
 
 	lines := strings.Split(string(bytes), "\n")
 	var ruCIDRs []string
-	// Автоматическое добавление диапазонов серверов Valve/Steam SDR для прямого игрового подключения
-	steamCIDRs := []string{
-		"162.254.128.0/17",
-		"155.133.220.0/18",
-		"146.66.152.0/21",
-		"185.25.180.0/22",
-		"208.64.200.0/22",
-		"205.196.6.0/24",
-		"45.121.184.0/22",
-	}
-	ruCIDRs = append(ruCIDRs, steamCIDRs...)
 
 	var domainsToResolve []string
 	for _, line := range lines {
