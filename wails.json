@@ -9,5 +9,13 @@
   "postbuildcommand": "cp bin/go_client build/bin/go_client",
   "author": {
     "name": "PWDTT"
+  },
+  "info": {
+    "companyName": "FTurnPc",
+    "productName": "FTurnPc",
+    "productVersion": "1.0.1",
+    "copyright": "© 2026 FTurnPc",
+    "comments": "FreeTurn VPN Client"
   }
 }
+
