@@ -52,16 +52,26 @@ func GetCoreVersion() string {
 		return "Не установлен"
 	}
 
-	// 1. Попробуем выполнить freeturnclient -version или -h
+	// 1. Попробуем выполнить freeturnclient -gen-obf-key, чтобы вытащить версию из логов
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, exePath, "-version")
-	out, err := cmd.CombinedOutput()
-	if err == nil && len(out) > 0 {
-		ver := strings.TrimSpace(string(out))
-		if ver != "" {
-			return ver
+	cmd := exec.CommandContext(ctx, exePath, "-gen-obf-key")
+	out, _ := cmd.CombinedOutput()
+	if len(out) > 0 {
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "version=") {
+				parts := strings.Split(line, "version=")
+				if len(parts) >= 2 {
+					ver := strings.TrimSpace(parts[1])
+					// Нормализуем версию (v1.7.0), так как GitHub API возвращает с префиксом 'v'
+					if !strings.HasPrefix(ver, "v") {
+						ver = "v" + ver
+					}
+					return ver
+				}
+			}
 		}
 	}
 
