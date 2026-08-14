@@ -400,6 +400,25 @@ func defaultGateway() string {
 	return ""
 }
 
+func IsInternetAvailable() bool {
+	return defaultGateway() != ""
+}
+
+func HasNetworkChanged() bool {
+	gw := defaultGateway()
+	if gw == "" {
+		return true // Internet lost
+	}
+	ifIndex, err := getGatewayInterfaceIndex(gw)
+	if err != nil || ifIndex != activeIfaceIndex {
+		return true // Interface changed
+	}
+	if gw != activeGatewayIP {
+		return true // Gateway IP changed
+	}
+	return false
+}
+
 // parseCIDR converts "10.0.0.2/24" → ("10.0.0.2", "255.255.255.0", nil).
 func parseCIDR(cidr string) (ip, mask string, err error) {
 	parts := strings.SplitN(cidr, "/", 2)

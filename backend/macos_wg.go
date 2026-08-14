@@ -28,6 +28,7 @@ var (
 	activeIfaceName string
 	activeRoutes    []string
 	activeRoutesMu  sync.Mutex
+	activeGatewayIP string
 )
 
 func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) error {
@@ -97,6 +98,7 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 
 	var routes []string
 	gw := defaultGateway()
+	activeGatewayIP = gw
 	if gw != "" {
 		for _, ip := range turnIPs {
 			if run("route", "add", "-host", ip, gw) == nil {
@@ -125,6 +127,7 @@ func teardownWG() {
 	activeRoutesMu.Lock()
 	routes := activeRoutes
 	activeRoutes = nil
+	activeGatewayIP = ""
 	activeRoutesMu.Unlock()
 
 	for _, entry := range routes {
@@ -201,6 +204,21 @@ func defaultGateway() string {
 		}
 	}
 	return ""
+}
+
+func IsInternetAvailable() bool {
+	return defaultGateway() != ""
+}
+
+func HasNetworkChanged() bool {
+	gw := defaultGateway()
+	if gw == "" {
+		return true // Internet lost
+	}
+	if gw != activeGatewayIP {
+		return true // Gateway IP changed
+	}
+	return false
 }
 
 func localDNSServers() []string {

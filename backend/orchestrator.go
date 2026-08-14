@@ -181,6 +181,9 @@ type Orchestrator struct {
 	engine        *FreeturnEngine
 	prevLogWriter io.Writer
 	onTray        func(connected bool, rx, tx int64, workers int32)
+	userStopped   bool
+	reconnectMu   sync.Mutex
+	reconnecting  bool
 	lw            *wailsLogWriter
 }
 
@@ -195,8 +198,18 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 		runtime.EventsEmit(o.appCtx, "log", "ERROR", "FreeTurn уже запущен")
 		return fmt.Errorf("already running")
 	}
+	o.userStopped = false
 	o.mu.Unlock()
 
+	if err := o.startEngineOnly(p); err != nil {
+		return err
+	}
+
+	go o.monitorNetwork(p)
+	return nil
+}
+
+func (o *Orchestrator) startEngineOnly(p ConnectParams) error {
 	runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("Загрузка профиля: %s (path: %s)", p.Profile, profilePath(p.Profile)))
 	prof, err := loadProfile(p.Profile)
 	if err != nil {
@@ -208,6 +221,9 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 	// Перехватываем стандартный логгер
 	if _, already := log.Writer().(*wailsLogWriter); !already {
 		o.prevLogWriter = log.Writer()
+	}
+	if o.lw != nil {
+		o.stopLogWriter()
 	}
 	o.lw = &wailsLogWriter{ctx: o.appCtx, file: newSessionLogFile(p.Profile)}
 	o.lw.start()
@@ -245,6 +261,7 @@ func (o *Orchestrator) stopLogWriter() {
 
 func (o *Orchestrator) Stop() {
 	o.mu.Lock()
+	o.userStopped = true
 	engine := o.engine
 	o.mu.Unlock()
 	
@@ -259,4 +276,64 @@ func (o *Orchestrator) IsRunning() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.engine != nil && o.engine.IsRunning()
+}
+
+func (o *Orchestrator) monitorNetwork(p ConnectParams) {
+	o.reconnectMu.Lock()
+	if o.reconnecting {
+		o.reconnectMu.Unlock()
+		return
+	}
+	o.reconnecting = true
+	o.reconnectMu.Unlock()
+	
+	defer func() {
+		o.reconnectMu.Lock()
+		o.reconnecting = false
+		o.reconnectMu.Unlock()
+	}()
+
+	for {
+		time.Sleep(3 * time.Second)
+		o.mu.Lock()
+		stopped := o.userStopped
+		o.mu.Unlock()
+		if stopped {
+			return
+		}
+
+		if HasNetworkChanged() {
+			runtime.EventsEmit(o.appCtx, "log", "WARN", "Смена сети или потеря подключения. Подготовка к переподключению...")
+			
+			o.mu.Lock()
+			engine := o.engine
+			o.mu.Unlock()
+			if engine != nil {
+				engine.Stop()
+				o.stopLogWriter()
+			}
+			
+			for {
+				time.Sleep(3 * time.Second)
+				o.mu.Lock()
+				stopped = o.userStopped
+				o.mu.Unlock()
+				if stopped {
+					return
+				}
+
+				if !IsInternetAvailable() {
+					continue // wait until internet is actually available
+				}
+
+				runtime.EventsEmit(o.appCtx, "log", "INFO", "Восстановление туннеля...")
+				if err := o.startEngineOnly(p); err == nil {
+					runtime.EventsEmit(o.appCtx, "log", "INFO", "Связь успешно восстановлена!")
+					break // exit inner reconnect loop, continue monitoring
+				} else {
+					runtime.EventsEmit(o.appCtx, "log", "WARN", fmt.Sprintf("Ошибка восстановления: %v", err))
+				}
+			}
+		}
+	}
 }
