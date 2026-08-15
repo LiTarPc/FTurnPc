@@ -188,6 +188,9 @@ func IsInternetAvailable() bool {
 }
 
 func HasNetworkChanged() bool {
+	if activeGatewayIP == "" {
+		return defaultGateway() == ""
+	}
 	gw := defaultGateway()
 	if gw == "" {
 		return true // Internet lost

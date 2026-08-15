@@ -405,6 +405,11 @@ func IsInternetAvailable() bool {
 }
 
 func HasNetworkChanged() bool {
+	if activeGatewayIP == "" {
+		// Tunnel is not fully up yet, so no baseline to compare against.
+		// Only report true if internet is completely lost.
+		return defaultGateway() == ""
+	}
 	gw := defaultGateway()
 	if gw == "" {
 		return true // Internet lost
