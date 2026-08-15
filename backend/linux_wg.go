@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+func CleanupNetworkLeftovers() {
+	// Для Linux очистка (пока не требуется на старте)
+}
+
 var (
 	activeRoutes    []string
 	activeRoutesMu  sync.Mutex
