@@ -383,6 +383,10 @@ func (e *FreeturnEngine) startStatsLoop() {
 	go func(stop chan struct{}) {
 		t := time.NewTicker(1 * time.Second)
 		defer t.Stop()
+
+		var lastRx, lastTx int64
+		var cumRx, cumTx int64
+
 		for {
 			select {
 			case <-t.C:
@@ -390,7 +394,20 @@ func (e *FreeturnEngine) startStatsLoop() {
 				if err != nil {
 					continue
 				}
-				
+
+				// Check for 32-bit overflow (Windows GetIfEntry returns uint32)
+				if rx < lastRx {
+					cumRx += (1 << 32)
+				}
+				if tx < lastTx {
+					cumTx += (1 << 32)
+				}
+				lastRx = rx
+				lastTx = tx
+
+				realRx := cumRx + rx
+				realTx := cumTx + tx
+
 				e.muStreams.Lock()
 				activeCount := len(e.activeStreams)
 				e.muStreams.Unlock()
@@ -398,11 +415,13 @@ func (e *FreeturnEngine) startStatsLoop() {
 				packedWorkers := int32(activeCount) | (int32(e.configuredStreams) << 16)
 				
 				if e.onTray != nil {
-					e.onTray(true, rx, tx, packedWorkers)
+					e.onTray(true, realRx, realTx, packedWorkers)
 				}
 				runtime.EventsEmit(e.appCtx, "stats", map[string]interface{}{
-					"rx": rx,
-					"tx": tx,
+					"rx":              realRx,
+					"tx":              realTx,
+					"active_streams":  activeCount,
+					"configured_max":  e.configuredStreams,
 				})
 			case <-stop:
 				return
