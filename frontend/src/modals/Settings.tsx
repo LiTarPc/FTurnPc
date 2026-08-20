@@ -118,7 +118,7 @@ export default function Settings({ onClose }: Props) {
     <>
       <style>{`
         .st-overlay { position: fixed; inset: 0; background: var(--overlay-bg); display: flex; align-items: center; justify-content: center; z-index: 100; animation: overlay-in 0.3s ease-out; }
-        .st-modal { background: var(--popup-bg); border-radius: var(--border-radius); padding: 20px; width: 380px; max-width: 95vw; box-shadow: var(--shadow); animation: modal-in 0.3s ease-out; border: 1px solid var(--border); }
+        .st-modal { background: var(--popup-bg); border-radius: var(--border-radius); padding: 20px; width: 380px; max-width: 95vw; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow); animation: modal-in 0.3s ease-out; border: 1px solid var(--border); }
         .st-header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: var(--text); }
         .st-title { font-size: 15px; font-weight: 600; flex: 1; color: var(--text); }
         .st-close { background: none; border: none; cursor: pointer; font-size: 18px; color: var(--text); line-height: 1; padding: 0; }

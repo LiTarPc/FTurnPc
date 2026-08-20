@@ -89,7 +89,11 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.statsStop = nil
 
 	peerIP, _, _ := strings.Cut(prof.PeerAddr, ":")
-	e.addTurnIP(peerIP)
+	if peerIP != "" {
+		e.muIPs.Lock()
+		e.turnIPs[peerIP] = true
+		e.muIPs.Unlock()
+	}
 
 	exePath := getFreeturnPath()
 	if _, err := os.Stat(exePath); os.IsNotExist(err) {
