@@ -51,8 +51,22 @@ func (e *FreeturnEngine) addTurnIP(ip string) {
 		if e.turnIPs == nil {
 			e.turnIPs = make(map[string]bool)
 		}
+		isNew := !e.turnIPs[ip]
 		e.turnIPs[ip] = true
 		e.muIPs.Unlock()
+
+		if isNew {
+			e.mu.Lock()
+			applied := e.wgApplied
+			e.mu.Unlock()
+			if applied {
+				if err := AddBypassRoute(ip); err != nil {
+					runtime.EventsEmit(e.appCtx, "log", "WARNING", fmt.Sprintf("[WG] Ошибка динамического байпаса TURN %s: %v", ip, err))
+				} else {
+					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Добавлен динамический маршрут для TURN: %s", ip))
+				}
+			}
+		}
 	}
 }
 
@@ -268,20 +282,7 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 		// Detect if a manual captcha is requested (either startup or mid-session)
 		lowerLine := strings.ToLower(line)
 		if strings.Contains(lowerLine, "localhost:8765") || strings.Contains(lowerLine, "manual captcha") {
-			e.mu.Lock()
-			wasApplied := e.wgApplied
-			e.wgApplied = false
-			e.mu.Unlock()
-
-			teardownWG()
-			
-			if wasApplied {
-				runtime.EventsEmit(e.appCtx, "state_changed", "connecting", "")
-				runtime.EventsEmit(e.appCtx, "log", "WARNING", "[WG] Требуется ввод капчи. Временно отключаем туннель...")
-				if e.onTray != nil {
-					e.onTray(false, 0, 0, 0)
-				}
-			}
+			runtime.EventsEmit(e.appCtx, "log", "WARNING", "[WG] Требуется ввод капчи. Ожидание действий пользователя (туннель не отключается)...")
 		}
 		
 		// FreeTurn client emits "Established DTLS connection" when a stream is ready
@@ -295,9 +296,6 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 
 			if shouldApply {
 				go func() {
-					runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Ожидание 6 сек, чтобы все потоки успели подключиться...")
-					time.Sleep(6 * time.Second)
-					
 					e.muIPs.Lock()
 					ips := make([]string, 0, len(e.turnIPs))
 					for ip := range e.turnIPs {
@@ -305,7 +303,7 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 					}
 					e.muIPs.Unlock()
 					
-					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига (исключения: %v)...", ips))
+					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига (стартовый байпас: %v)...", ips))
 					
 					if err := applyWGConfig(wgConfig, ips, bypassRu, customMTU); err != nil {
 						msg := fmt.Sprintf("[WG] Ошибка применения конфига: %v", err)

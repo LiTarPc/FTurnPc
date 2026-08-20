@@ -116,7 +116,7 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 		for _, ip := range turnIPs {
 			excludes = append(excludes, ip+"/32")
 		}
-		excludes = append(excludes, vkExcludeCIDRs...)
+		excludes = append(excludes, GetVKExcludeCIDRs()...)
 
 		if bypassRu {
 			ruCIDRs := loadGeoIPRuCIDRs()
@@ -307,6 +307,31 @@ func teardownWG() {
 		activeTun.Close()
 		activeTun = nil
 	}
+}
+
+// AddBypassRoute добавляет маршрут-исключение "на лету" без полного перезапуска интерфейса.
+func AddBypassRoute(ip string) error {
+	gw := activeGatewayIP
+	if gw == "" {
+		gw = defaultGateway()
+		if gw == "" {
+			return fmt.Errorf("no default gateway found")
+		}
+		activeGatewayIP = gw
+		ifIndex, _ := getGatewayInterfaceIndex(gw)
+		activeIfaceIndex = ifIndex
+	}
+	cidr := ip + "/32"
+	var err error
+	if activeIfaceIndex > 0 {
+		err = run("netsh", "interface", "ipv4", "add", "route", "prefix="+cidr, fmt.Sprintf("interface=%d", activeIfaceIndex), "nexthop="+gw, "metric=5", "store=active")
+	} else {
+		err = run("netsh", "interface", "ipv4", "add", "route", "prefix="+cidr, "nexthop="+gw, "metric=5", "store=active")
+	}
+	if err == nil {
+		activeExcludeRoutes = append(activeExcludeRoutes, cidr)
+	}
+	return err
 }
 
 // uapiConf converts a wg-setconf-compatible config (with [Interface]/[Peer] sections)

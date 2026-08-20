@@ -87,7 +87,7 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 		for _, ip := range turnIPs {
 			excludes = append(excludes, ip+"/32")
 		}
-		excludes = append(excludes, vkExcludeCIDRs...)
+		excludes = append(excludes, GetVKExcludeCIDRs()...)
 
 		if bypassRu {
 			ruCIDRs := loadGeoIPRuCIDRs()
@@ -144,6 +144,26 @@ func teardownWG() {
 	}
 	_ = run("ip", "link", "del", wgIface)
 }
+
+// AddBypassRoute добавляет маршрут-исключение "на лету" без полного перезапуска интерфейса.
+func AddBypassRoute(ip string) error {
+	gw := activeGatewayIP
+	if gw == "" {
+		gw = defaultGateway()
+		if gw == "" {
+			return fmt.Errorf("no default gateway found")
+		}
+		activeGatewayIP = gw
+	}
+	err := run("ip", "route", "add", ip+"/32", "via", gw)
+	if err == nil {
+		activeRoutesMu.Lock()
+		activeRoutes = append(activeRoutes, ip+"/32")
+		activeRoutesMu.Unlock()
+	}
+	return err
+}
+
 
 func runBatchIPCommands(script string) error {
 	tmp, err := os.CreateTemp("", "ip-batch-*.txt")
