@@ -1,5 +1,6 @@
 # Build output
-build/bin/
+build/bin/*
+!build/bin/geoip-ru.txt
 
 # Node
 frontend/node_modules/
