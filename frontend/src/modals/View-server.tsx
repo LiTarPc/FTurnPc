@@ -24,6 +24,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
   const [wg, setWg] = useState(server.wg || '');
 
   const [devMode, setDevMode] = useState(false);
+
   const [profile, setProfile] = useState<Server>(server);
 
   useEffect(() => {
@@ -46,13 +47,16 @@ export function ViewServer({ server, onClose, onSave }: Props) {
 
   const handleSave = async () => {
     try {
-      const pNum = parseInt(power, 10);
+      let pNum = parseInt(power, 10);
+      if (isNaN(pNum)) pNum = 10;
+      if (!devMode && pNum > 20) pNum = 20;
+
       const sNum = parseInt(streams, 10);
       
       const next: Server = {
         ...profile,
         links: links.trim(),
-        power: isNaN(pNum) ? 10 : pNum,
+        power: pNum,
         streamsPerCred: isNaN(sNum) ? 5 : sNum,
         peer: peer.trim(),
         provider: provider.trim(),
@@ -211,25 +215,18 @@ export function ViewServer({ server, onClose, onSave }: Props) {
           <div className="modal-body">
             
             <div className="form-group row">
-              <label>VK Call (Links):</label>
-              <input 
-                type="text" 
-                className="input" 
-                value={links} 
-                onChange={e => setLinks(e.target.value)}
-                placeholder="vk.ru/call..."
-              />
-            </div>
-
-            <div className="form-group row">
               <label>Threads (-n):</label>
               <input 
                 type="number" 
                 className="input" 
                 value={power} 
-                onChange={e => setPower(e.target.value)}
+                onChange={e => {
+                  let val = Number(e.target.value);
+                  if (!devMode && val > 20) val = 20;
+                  setPower(String(val));
+                }}
                 min="1"
-                max="100"
+                max={devMode ? "100" : "20"}
               />
             </div>
 
@@ -250,7 +247,15 @@ export function ViewServer({ server, onClose, onSave }: Props) {
                 <input 
                   type="checkbox" 
                   checked={devMode} 
-                  onChange={e => setDevMode(e.target.checked)} 
+                  onChange={e => {
+                    if (e.target.checked) {
+                      const p = prompt('Введите пароль разработчика:');
+                      if (p === 'admin123') setDevMode(true);
+                      else if (p !== null) alert('Неверный пароль');
+                    } else {
+                      setDevMode(false);
+                    }
+                  }} 
                   style={{ width: 16, height: 16, cursor: 'pointer' }}
                 />
                 <span>Режим разработчика</span>
@@ -260,6 +265,17 @@ export function ViewServer({ server, onClose, onSave }: Props) {
             {devMode && (
               <>
                 <hr />
+                
+                <div className="form-group row">
+                  <label>VK Call (Links):</label>
+                  <input 
+                    type="text" 
+                    className="input" 
+                    value={links} 
+                    onChange={e => setLinks(e.target.value)}
+                    placeholder="vk.ru/call..."
+                  />
+                </div>
 
                 <div className="form-group row">
                   <label>Peer (Address):</label>
