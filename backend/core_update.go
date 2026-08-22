@@ -66,7 +66,6 @@ func GetCoreVersion() string {
 				parts := strings.Split(line, "version=")
 				if len(parts) >= 2 {
 					ver := strings.TrimSpace(parts[1])
-					// Нормализуем версию (v1.7.0), так как GitHub API возвращает с префиксом 'v'
 					if !strings.HasPrefix(ver, "v") {
 						ver = "v" + ver
 					}
@@ -76,7 +75,20 @@ func GetCoreVersion() string {
 		}
 	}
 
-	// 2. Если аргумент -version не вернул данных, покажем дату изменения файла
+	// 2. Попробуем выполнить freeturnclient -help, чтобы по флагам определить версию (v3.x.x убрал -mode и добавил -dns-mode)
+	ctxHelp, cancelHelp := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelHelp()
+	cmdHelp := exec.CommandContext(ctxHelp, exePath, "-help")
+	hideWindow(cmdHelp)
+	outHelp, _ := cmdHelp.CombinedOutput()
+	outStr := string(outHelp)
+	if strings.Contains(outStr, "-dns-mode") || strings.Contains(outStr, "-manual-captcha") {
+		return "v3.x.x"
+	} else if strings.Contains(outStr, "-mode") {
+		return "v2.x.x"
+	}
+
+	// 3. Если аргумент -version не вернул данных, покажем дату изменения файла
 	fi, err := os.Stat(exePath)
 	if err == nil {
 		return fmt.Sprintf("Бинарный файл от %s", fi.ModTime().Format("2006-01-02"))
@@ -211,7 +223,7 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 		},
-		Timeout: 60 * time.Second,
+		Timeout: 5 * time.Minute,
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if err != nil {
