@@ -8,7 +8,41 @@ permissions:
   contents: write
 
 jobs:
+  build-nsis:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Download latest fturn-core
+        run: |
+          mkdir -p build/bin
+          curl -s -L -o build/bin/client-windows-amd64.exe https://github.com/LiTarPc/fturn-core/releases/latest/download/client-windows-amd64.exe
+        shell: bash
+
+      - name: Build Wails NSIS Installer
+        run: wails build -platform windows/amd64 -nsis
+
+      - name: Upload NSIS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FTurnPc-windows-installer
+          path: build/bin/*-installer.exe
+
   release:
+    needs: build-nsis
     runs-on: ubuntu-latest
     steps:
       - name: Download Linux artifact
@@ -25,6 +59,12 @@ jobs:
           name: FTrunPc-windows-amd64
           path: dist
 
+      - name: Download NSIS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: FTurnPc-windows-installer
+          path: dist
+
       - name: List dist contents
         run: find dist/ -maxdepth 3 -ls
 
@@ -35,4 +75,4 @@ jobs:
           files: |
             dist/FTrunPc
             dist/FTrunPc.exe
-
+            dist/*-installer.exe
