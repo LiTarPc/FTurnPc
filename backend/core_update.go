@@ -57,6 +57,7 @@ func GetCoreVersion() string {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, exePath, "-gen-obf-key")
+	hideWindow(cmd)
 	out, _ := cmd.CombinedOutput()
 	if len(out) > 0 {
 		lines := strings.Split(string(out), "\n")

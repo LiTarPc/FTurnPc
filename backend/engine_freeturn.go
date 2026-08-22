@@ -125,7 +125,12 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if streams <= 0 {
 		streams = 5
 	}
-	args = append(args, "-streams-per-cred", fmt.Sprintf("%d", streams), "-mode", "udp")
+	args = append(args, "-streams-per-cred", fmt.Sprintf("%d", streams))
+	
+	coreVer := GetCoreVersion()
+	if strings.HasPrefix(coreVer, "v1.") || strings.HasPrefix(coreVer, "v2.") || strings.Contains(coreVer, "1.") || strings.Contains(coreVer, "2.") || strings.HasPrefix(coreVer, "Бинарный") {
+		args = append(args, "-mode", "udp")
+	}
 	
 	if prof.Obf != "" {
 		args = append(args, "-obf-profile", prof.Obf)
