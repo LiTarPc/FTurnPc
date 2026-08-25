@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  build-nsis:
+  build-and-release:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,17 +38,6 @@ jobs:
       - name: Build Wails NSIS Installer
         run: wails build -platform windows/amd64 -nsis
 
-      - name: Upload NSIS Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FTurnPc-windows-installer
-          path: build/bin/*-installer.exe
-          if-no-files-found: error
-
-  release:
-    needs: build-nsis
-    runs-on: ubuntu-latest
-    steps:
       - name: Download Linux artifact
         uses: dawidd6/action-download-artifact@v6
         with:
@@ -63,15 +52,6 @@ jobs:
           name: FTrunPc-windows-amd64
           path: dist
 
-      - name: Download NSIS artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: FTurnPc-windows-installer
-          path: dist
-
-      - name: List dist contents
-        run: find dist/ -maxdepth 3 -ls
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -79,4 +59,4 @@ jobs:
           files: |
             dist/FTrunPc
             dist/FTrunPc.exe
-            dist/*-installer.exe
+            build/bin/*-installer.exe
