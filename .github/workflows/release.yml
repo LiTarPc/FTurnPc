@@ -33,10 +33,14 @@ jobs:
         shell: bash
 
       - name: Install NSIS
-        run: choco install nsis -y
+        run: |
+          choco install nsis -y
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
 
       - name: Build Wails NSIS Installer
-        run: wails build -platform windows/amd64 -nsis
+        run: |
+          wails build -platform windows/amd64 -nsis
+          dir build\bin
 
       - name: Download Linux artifact
         uses: dawidd6/action-download-artifact@v6
