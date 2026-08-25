@@ -32,6 +32,9 @@ jobs:
           curl -s -L -o build/bin/client-windows-amd64.exe https://github.com/LiTarPc/fturn-core/releases/latest/download/client-windows-amd64.exe
         shell: bash
 
+      - name: Install NSIS
+        run: choco install nsis -y
+
       - name: Build Wails NSIS Installer
         run: wails build -platform windows/amd64 -nsis
 
@@ -40,6 +43,7 @@ jobs:
         with:
           name: FTurnPc-windows-installer
           path: build/bin/*-installer.exe
+          if-no-files-found: error
 
   release:
     needs: build-nsis
