@@ -176,48 +176,8 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	}
 
 	e.wg.Add(2)
-	go e.parseLogs(stdout)
-	go e.parseLogs(stderr)
-
-	go func() {
-		e.muIPs.Lock()
-		ips := make([]string, 0, len(e.turnIPs))
-		for ip := range e.turnIPs {
-			ips = append(ips, ip)
-		}
-		e.muIPs.Unlock()
-		
-		runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига (стартовый байпас: %v)...", ips))
-		
-		if err := applyWGConfig(prof.WGConfig, ips, p.BypassRu, p.MTU); err != nil {
-			msg := fmt.Sprintf("[WG] Ошибка применения конфига: %v", err)
-			runtime.EventsEmit(e.appCtx, "error", msg)
-			runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
-			e.mu.Lock()
-			e.wgApplied = false
-			e.mu.Unlock()
-		} else {
-			e.mu.Lock()
-			e.wgApplied = true
-			e.mu.Unlock()
-
-			runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
-			runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Конфиг применён, туннель активен ✓")
-			if e.onTray != nil {
-				e.onTray(true, 0, 0, 0)
-			}
-			e.startStatsLoop()
-
-			// Диагностика типа NAT через STUN после успешного подключения
-			go func() {
-				time.Sleep(2 * time.Second)
-				if natRes, err := CheckNATType(); err == nil && natRes != nil {
-					runtime.EventsEmit(e.appCtx, "nat_info", natRes)
-					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[NAT] Тип NAT: %s (%s)", natRes.NATType, natRes.Details))
-				}
-			}()
-		}
-	}()
+	go e.parseLogs(stdout, prof.WGConfig, p.BypassRu, p.MTU)
+	go e.parseLogs(stderr, prof.WGConfig, p.BypassRu, p.MTU)
 
 	go func() {
 		defer close(e.exitChan)
@@ -270,7 +230,7 @@ func (e *FreeturnEngine) IsRunning() bool {
 	return e.cmd != nil
 }
 
-func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }) {
+func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgConfig string, bypassRu bool, customMTU int) {
 	defer e.wg.Done()
 	scanner := bufio.NewScanner(r)
 
@@ -332,6 +292,54 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }) {
 		lowerLine := strings.ToLower(line)
 		if strings.Contains(lowerLine, "localhost:8765") || strings.Contains(lowerLine, "manual captcha") {
 			runtime.EventsEmit(e.appCtx, "log", "WARNING", "[WG] Требуется ввод капчи. Ожидание действий пользователя (туннель не отключается)...")
+		}
+		
+		// FreeTurn client emits "Established DTLS connection" when a stream is ready
+		if strings.Contains(line, "Established DTLS connection") || strings.Contains(line, "activeConnectionCount") || strings.Contains(line, "stream is ready") {
+			e.mu.Lock()
+			shouldApply := !e.wgApplied
+			if shouldApply {
+				e.wgApplied = true
+			}
+			e.mu.Unlock()
+
+			if shouldApply {
+				go func() {
+					e.muIPs.Lock()
+					ips := make([]string, 0, len(e.turnIPs))
+					for ip := range e.turnIPs {
+						ips = append(ips, ip)
+					}
+					e.muIPs.Unlock()
+					
+					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига (стартовый байпас: %v)...", ips))
+					
+					if err := applyWGConfig(wgConfig, ips, bypassRu, customMTU); err != nil {
+						msg := fmt.Sprintf("[WG] Ошибка применения конфига: %v", err)
+						runtime.EventsEmit(e.appCtx, "error", msg)
+						runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
+						e.mu.Lock()
+						e.wgApplied = false
+						e.mu.Unlock()
+					} else {
+						runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
+						runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Конфиг применён, туннель активен ✓")
+						if e.onTray != nil {
+							e.onTray(true, 0, 0, 0)
+						}
+						e.startStatsLoop()
+
+						// Диагностика типа NAT через STUN после успешного подключения
+						go func() {
+							time.Sleep(2 * time.Second)
+							if natRes, err := CheckNATType(); err == nil && natRes != nil {
+								runtime.EventsEmit(e.appCtx, "nat_info", natRes)
+								runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[NAT] Тип NAT: %s (%s)", natRes.NATType, natRes.Details))
+							}
+						}()
+					}
+				}()
+			}
 		}
 		
 		level := classifyLevel(line)
