@@ -256,7 +256,32 @@ func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgC
 				e.muStreams.Unlock()
 			}
 		}
-		
+		if strings.Contains(line, "Resolved STUN server") {
+			parts := strings.Split(line, " to ")
+			if len(parts) == 2 {
+				ipPort := strings.TrimSpace(parts[1])
+				ip, _, _ := strings.Cut(ipPort, ":")
+				e.addTurnIP(ip)
+			}
+		}
+		if strings.Contains(line, "Resolved TURN server") {
+			parts := strings.Split(line, " to ")
+			if len(parts) == 2 {
+				ipPort := strings.TrimSpace(parts[1])
+				ip, _, _ := strings.Cut(ipPort, ":")
+				e.addTurnIP(ip)
+			}
+		}
+		if strings.Contains(line, "all VK credentials failed") {
+			runtime.EventsEmit(e.appCtx, "log", "ERROR", "[WG] Обнаружена блокировка DNS для VK Auth. Принудительный перезапуск туннеля...")
+			e.mu.Lock()
+			cmd := e.cmd
+			e.mu.Unlock()
+			if cmd != nil && cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+		}
+
 		if strings.Contains(line, "TURN server IP:") {
 			parts := strings.Split(line, "TURN server IP:")
 			if len(parts) == 2 {
