@@ -75,7 +75,8 @@ func (w *wailsLogWriter) flush() {
 
 func (w *wailsLogWriter) Write(p []byte) (int, error) {
 	msg := strings.TrimRight(string(p), "\n")
-	if len(msg) > 20 && msg[4] == '/' {
+	// Стандартный префикс даты Go log: "YYYY/MM/DD HH:MM:SS "
+	if len(msg) > 20 && msg[4] == '/' && msg[7] == '/' && msg[10] == ' ' && msg[13] == ':' && msg[16] == ':' {
 		msg = strings.TrimSpace(msg[20:])
 	}
 	level := classifyLevel(msg)

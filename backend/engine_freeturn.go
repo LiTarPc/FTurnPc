@@ -1,20 +1,18 @@
 package backend
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
-	goruntime "runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// FreeturnEngine управляет дочерним процессом freeturnclient и его жизненным циклом.
 type FreeturnEngine struct {
 	appCtx context.Context
 	cmd    *exec.Cmd
@@ -41,35 +39,6 @@ func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int3
 	}
 }
 
-func (e *FreeturnEngine) addTurnIP(ip string) {
-	ip = strings.TrimSpace(ip)
-	if ip == "" {
-		return
-	}
-	if strings.Contains(ip, ".") || strings.Contains(ip, ":") {
-		e.muIPs.Lock()
-		if e.turnIPs == nil {
-			e.turnIPs = make(map[string]bool)
-		}
-		isNew := !e.turnIPs[ip]
-		e.turnIPs[ip] = true
-		e.muIPs.Unlock()
-
-		if isNew {
-			e.mu.Lock()
-			applied := e.wgApplied
-			e.mu.Unlock()
-			if applied {
-				if err := AddBypassRoute(ip); err != nil {
-					runtime.EventsEmit(e.appCtx, "log", "WARNING", fmt.Sprintf("[WG] Ошибка динамического байпаса TURN %s: %v", ip, err))
-				} else {
-					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Добавлен динамический маршрут для TURN: %s", ip))
-				}
-			}
-		}
-	}
-}
-
 func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -89,10 +58,16 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.statsStop = nil
 
 	peerIP, _, _ := strings.Cut(prof.PeerAddr, ":")
+	peerIP = strings.TrimSpace(peerIP)
+	if peerIP == "localhost" {
+		peerIP = "127.0.0.1"
+	}
 	if peerIP != "" {
-		e.muIPs.Lock()
-		e.turnIPs[peerIP] = true
-		e.muIPs.Unlock()
+		if ip := net.ParseIP(peerIP); ip != nil {
+			e.muIPs.Lock()
+			e.turnIPs[peerIP] = true
+			e.muIPs.Unlock()
+		}
 	}
 
 	exePath := getFreeturnPath()
@@ -107,31 +82,35 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if prof.Links != "" {
 		args = append(args, "-links", prof.Links)
 	}
-	
+
 	workers := p.Workers
 	if workers <= 0 {
-		workers = 10
+		if prof.Power > 0 {
+			workers = prof.Power
+		} else {
+			workers = 10
+		}
 	}
 	e.configuredStreams = workers
 	args = append(args, "-n", fmt.Sprintf("%d", workers))
-	
+
 	transport := prof.Transport
 	if transport == "" {
 		transport = "tcp"
 	}
 	args = append(args, "-transport", transport)
-	
+
 	streams := prof.StreamsPerCred
 	if streams <= 0 {
 		streams = 5
 	}
 	args = append(args, "-streams-per-cred", fmt.Sprintf("%d", streams))
-	
+
 	coreVer := GetCoreVersion()
 	if strings.HasPrefix(coreVer, "v1.") || strings.HasPrefix(coreVer, "v2.") || strings.Contains(coreVer, "1.") || strings.Contains(coreVer, "2.") || strings.HasPrefix(coreVer, "Бинарный") {
 		args = append(args, "-mode", "udp")
 	}
-	
+
 	if prof.Obf != "" {
 		args = append(args, "-obf-profile", prof.Obf)
 	}
@@ -147,8 +126,8 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.cancel = cancel
 	e.exitChan = make(chan struct{})
 	e.cmd = exec.CommandContext(ctx, exePath, args...)
-	
-	// Hide window on Windows
+
+	// Скрытие окна консоли на Windows
 	hideWindow(e.cmd)
 
 	stdout, err := e.cmd.StdoutPipe()
@@ -228,243 +207,4 @@ func (e *FreeturnEngine) IsRunning() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.cmd != nil
-}
-
-func (e *FreeturnEngine) parseLogs(r interface{ Read([]byte) (int, error) }, wgConfig string, bypassRu bool, customMTU int) {
-	defer e.wg.Done()
-	scanner := bufio.NewScanner(r)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Parse active streams from logs
-		if idx := strings.Index(line, "[STREAM "); idx != -1 {
-			sub := line[idx+8:]
-			end := strings.Index(sub, "]")
-			if end != -1 {
-				streamID := sub[:end]
-				e.muStreams.Lock()
-				if e.activeStreams == nil {
-					e.activeStreams = make(map[string]bool)
-				}
-				if strings.Contains(line, "relayed-address") || strings.Contains(line, "Established") || strings.Contains(line, "stream is ready") {
-					e.activeStreams[streamID] = true
-				}
-				if strings.Contains(line, "closed") || strings.Contains(line, "failed") {
-					delete(e.activeStreams, streamID)
-				}
-				e.muStreams.Unlock()
-			}
-		}
-		if strings.Contains(line, "Resolved STUN server") {
-			parts := strings.Split(line, " to ")
-			if len(parts) == 2 {
-				ipPort := strings.TrimSpace(parts[1])
-				ip, _, _ := strings.Cut(ipPort, ":")
-				e.addTurnIP(ip)
-			}
-		}
-		if strings.Contains(line, "Resolved TURN server") {
-			parts := strings.Split(line, " to ")
-			if len(parts) == 2 {
-				ipPort := strings.TrimSpace(parts[1])
-				ip, _, _ := strings.Cut(ipPort, ":")
-				e.addTurnIP(ip)
-			}
-		}
-		if strings.Contains(line, "all VK credentials failed") {
-			runtime.EventsEmit(e.appCtx, "log", "ERROR", "[WG] Обнаружена блокировка DNS для VK Auth. Принудительный перезапуск туннеля...")
-			e.mu.Lock()
-			cmd := e.cmd
-			e.mu.Unlock()
-			if cmd != nil && cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
-		}
-
-		if strings.Contains(line, "TURN server IP:") {
-			parts := strings.Split(line, "TURN server IP:")
-			if len(parts) == 2 {
-				ip := strings.TrimSpace(parts[1])
-				e.addTurnIP(ip)
-			}
-		}
-		if strings.Contains(line, "selected turn:") {
-			parts := strings.Split(line, "selected turn:")
-			if len(parts) == 2 {
-				ipPort := strings.TrimSpace(parts[1])
-				host, _, _ := strings.Cut(ipPort, ":")
-				e.addTurnIP(host)
-			}
-		}
-		if strings.Contains(line, "server=") {
-			idx := strings.Index(line, "server=")
-			if idx != -1 {
-				sub := line[idx+7:]
-				end := strings.IndexAny(sub, " )\"'")
-				var addr string
-				if end != -1 {
-					addr = sub[:end]
-				} else {
-					addr = sub
-				}
-				ip, _, _ := strings.Cut(addr, ":")
-				e.addTurnIP(ip)
-			}
-		}
-
-		// Detect if a manual captcha is requested (either startup or mid-session)
-		lowerLine := strings.ToLower(line)
-		if strings.Contains(lowerLine, "localhost:8765") || strings.Contains(lowerLine, "manual captcha") {
-			runtime.EventsEmit(e.appCtx, "log", "WARNING", "[WG] Требуется ввод капчи. Ожидание действий пользователя (туннель не отключается)...")
-		}
-		
-		// FreeTurn client emits "Established DTLS connection" when a stream is ready
-		if strings.Contains(line, "Established DTLS connection") || strings.Contains(line, "activeConnectionCount") || strings.Contains(line, "stream is ready") {
-			e.mu.Lock()
-			shouldApply := !e.wgApplied
-			if shouldApply {
-				e.wgApplied = true
-			}
-			e.mu.Unlock()
-
-			if shouldApply {
-				go func() {
-					e.muIPs.Lock()
-					ips := make([]string, 0, len(e.turnIPs))
-					for ip := range e.turnIPs {
-						ips = append(ips, ip)
-					}
-					e.muIPs.Unlock()
-					
-					runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[WG] Применение конфига (стартовый байпас: %v)...", ips))
-					
-					if err := applyWGConfig(wgConfig, ips, bypassRu, customMTU); err != nil {
-						msg := fmt.Sprintf("[WG] Ошибка применения конфига: %v", err)
-						runtime.EventsEmit(e.appCtx, "error", msg)
-						runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
-						e.mu.Lock()
-						e.wgApplied = false
-						e.mu.Unlock()
-					} else {
-						runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
-						runtime.EventsEmit(e.appCtx, "log", "INFO", "[WG] Конфиг применён, туннель активен ✓")
-						if e.onTray != nil {
-							e.onTray(true, 0, 0, 0)
-						}
-						e.startStatsLoop()
-
-						// Диагностика типа NAT через STUN после успешного подключения
-						go func() {
-							time.Sleep(2 * time.Second)
-							if natRes, err := CheckNATType(); err == nil && natRes != nil {
-								runtime.EventsEmit(e.appCtx, "nat_info", natRes)
-								runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[NAT] Тип NAT: %s (%s)", natRes.NATType, natRes.Details))
-							}
-						}()
-					}
-				}()
-			}
-		}
-		
-		level := classifyLevel(line)
-		runtime.EventsEmit(e.appCtx, "log", level, line)
-		
-		if strings.Contains(line, "fatal") || strings.Contains(line, "error") {
-			runtime.EventsEmit(e.appCtx, "error", line)
-		}
-	}
-}
-
-func getFreeturnPath() string {
-	exeNames := []string{"freeturnclient", "client-windows-amd64", "client"}
-	if goruntime.GOOS == "windows" {
-		exeNames = []string{"freeturnclient.exe", "client-windows-amd64.exe", "client.exe", "freeturnclient", "client-windows-amd64"}
-	}
-	exe, _ := os.Executable()
-	dir := filepath.Dir(exe)
-
-	for _, exeName := range exeNames {
-		path1 := filepath.Join(dir, "assets", "freeturn", exeName)
-		if _, err := os.Stat(path1); err == nil {
-			return path1
-		}
-		path2 := filepath.Join(dir, exeName)
-		if _, err := os.Stat(path2); err == nil {
-			return path2
-		}
-		if path3, err := exec.LookPath(exeName); err == nil {
-			return path3
-		}
-	}
-
-	defaultName := "freeturnclient"
-	if goruntime.GOOS == "windows" {
-		defaultName = "freeturnclient.exe"
-	}
-	return filepath.Join(dir, defaultName)
-}
-
-func (e *FreeturnEngine) startStatsLoop() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.statsStop != nil {
-		return
-	}
-	e.statsStop = make(chan struct{})
-	go func(stop chan struct{}) {
-		t := time.NewTicker(1 * time.Second)
-		defer t.Stop()
-
-		var lastRx, lastTx int64
-		var cumRx, cumTx int64
-
-		for {
-			select {
-			case <-t.C:
-				rx, tx, err := getInterfaceBytes("wg-turn")
-				if err != nil {
-					continue
-				}
-
-				// Check for 32-bit overflow (Windows GetIfEntry returns uint32)
-				if rx < lastRx {
-					cumRx += (1 << 32)
-				}
-				if tx < lastTx {
-					cumTx += (1 << 32)
-				}
-				lastRx = rx
-				lastTx = tx
-
-				realRx := cumRx + rx
-				realTx := cumTx + tx
-
-				e.muStreams.Lock()
-				activeCount := len(e.activeStreams)
-				e.muStreams.Unlock()
-				
-				packedWorkers := int32(activeCount) | (int32(e.configuredStreams) << 16)
-				
-				if e.onTray != nil {
-					e.onTray(true, realRx, realTx, packedWorkers)
-				}
-				runtime.EventsEmit(e.appCtx, "stats", map[string]interface{}{
-					"rx":              realRx,
-					"tx":              realTx,
-					"active_streams":  activeCount,
-					"configured_max":  e.configuredStreams,
-				})
-			case <-stop:
-				return
-			}
-		}
-	}(e.statsStop)
-}
-
-func (e *FreeturnEngine) stopStatsLoopLocked() {
-	if e.statsStop != nil {
-		close(e.statsStop)
-		e.statsStop = nil
-	}
 }

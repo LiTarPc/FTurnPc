@@ -156,8 +156,8 @@ allowedips = 0.0.0.0/0
 }
 
 func TestVkExcludeCIDRsNotEmpty(t *testing.T) {
-	if len(vkExcludeCIDRs) == 0 {
-		t.Error("vkExcludeCIDRs should not be empty")
+	if len(GetVKExcludeCIDRs()) == 0 {
+		t.Error("GetVKExcludeCIDRs should not be empty")
 	}
 }
 

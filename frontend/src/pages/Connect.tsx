@@ -1,74 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import type React from 'react';
 import {
   IconPlus, IconSettings, IconTrash, IconChevronUp, IconPower,
-  IconCloverFilled, IconFlameFilled, IconShieldFilled, IconLayoutGridFilled, IconCloudFilled, IconBrandSpeedtest,
-  IconStarFilled, IconHeartFilled, IconBoltFilled, IconRocket,
-  IconCrownFilled, IconDiamondFilled, IconLeafFilled, IconSnowflake,
-  IconServer, IconGlobe, IconLockFilled, IconWifi, IconPlugConnected,
+  IconPlugConnected,
 } from '@tabler/icons-react';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-
-const SERVER_ICONS: { key: string; render: (size: number) => React.ReactNode }[] = [
-  { key: 'clover',     render: s => <IconCloverFilled size={s} /> },
-  { key: 'flame',      render: s => <IconFlameFilled size={s} /> },
-  { key: 'shield',     render: s => <IconShieldFilled size={s} /> },
-  { key: 'grid',       render: s => <IconLayoutGridFilled size={s} /> },
-  { key: 'cloud',      render: s => <IconCloudFilled size={s} /> },
-  { key: 'speed',      render: s => <IconBrandSpeedtest size={s} stroke={2} /> },
-  { key: 'star',       render: s => <IconStarFilled size={s} /> },
-  { key: 'heart',      render: s => <IconHeartFilled size={s} /> },
-  { key: 'bolt',       render: s => <IconBoltFilled size={s} /> },
-  { key: 'rocket',     render: s => <IconRocket size={s} stroke={2} /> },
-  { key: 'crown',      render: s => <IconCrownFilled size={s} /> },
-  { key: 'diamond',    render: s => <IconDiamondFilled size={s} /> },
-  { key: 'leaf',       render: s => <IconLeafFilled size={s} /> },
-  { key: 'snowflake',  render: s => <IconSnowflake size={s} stroke={2} /> },
-  { key: 'server',     render: s => <IconServer size={s} stroke={2} /> },
-  { key: 'globe',      render: s => <IconGlobe size={s} stroke={2} /> },
-  { key: 'lock',       render: s => <IconLockFilled size={s} /> },
-  { key: 'wifi',       render: s => <IconWifi size={s} stroke={2} /> },
-  { key: 'flag-ru',    render: () => <img src="/flags/ru.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-us',    render: () => <img src="/flags/us.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-de',    render: () => <img src="/flags/de.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-nl',    render: () => <img src="/flags/nl.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-fi',    render: () => <img src="/flags/fi.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-fr',    render: () => <img src="/flags/fr.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-gb',    render: () => <img src="/flags/gb.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-jp',    render: () => <img src="/flags/jp.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-pl',    render: () => <img src="/flags/pl.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-se',    render: () => <img src="/flags/se.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-ch',    render: () => <img src="/flags/ch.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-lt',    render: () => <img src="/flags/lt.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-lv',    render: () => <img src="/flags/lv.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-ee',    render: () => <img src="/flags/ee.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-cz',    render: () => <img src="/flags/cz.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-at',    render: () => <img src="/flags/at.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-ca',    render: () => <img src="/flags/ca.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-au',    render: () => <img src="/flags/au.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-sg',    render: () => <img src="/flags/sg.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-hk',    render: () => <img src="/flags/hk.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-tr',    render: () => <img src="/flags/tr.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-  { key: 'flag-kz',    render: () => <img src="/flags/kz.svg" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> },
-];
-
-function ServerIcon({ iconKey, size }: { iconKey?: string; size: number }) {
-  const entry = SERVER_ICONS.find(i => i.key === (iconKey ?? 'clover')) ?? SERVER_ICONS[0];
-  return (
-    <div style={{
-      width: size,
-      height: size,
-      borderRadius: '5px',
-      overflow: 'hidden',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      flexShrink: 0,
-    }}>
-      {entry.render(size)}
-    </div>
-  );
-}
 import AddServer from '../modals/Add-server';
 import { ViewServer } from '../modals/View-server';
 import { serverStore } from '../lib/store';
@@ -80,20 +15,8 @@ import { wdttLinkStore } from '../lib/utils/wdttLink';
 import { SaveProfile } from '../../wailsjs/go/backend/App';
 import type { Server, TunnelState } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles, DeleteProfile } from '../../wailsjs/go/backend/App';
-
-const PING_COLORS: Record<string, string> = {
-  good: '#22c55e',
-  mid: '#f59e0b',
-  bad: '#ef4444',
-  none: 'var(--border)',
-};
-
-function pingColor(ping?: number) {
-  if (!ping) return PING_COLORS.none;
-  if (ping < 100) return PING_COLORS.good;
-  if (ping < 200) return PING_COLORS.mid;
-  return PING_COLORS.bad;
-}
+import { ServerIcon, SERVER_ICONS } from '../components/ServerIcon';
+import { formatBytes, formatSpeed, pingColor } from '../lib/utils/format';
 
 const TUNNEL_LABEL: Record<TunnelState, string> = {
   idle: 'Подключить',
@@ -101,22 +24,6 @@ const TUNNEL_LABEL: Record<TunnelState, string> = {
   connected: 'Отключить',
   disconnecting: 'Отключение...',
 };
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-function formatSpeed(bytesPerSec: number): string {
-  if (bytesPerSec === 0) return '0 B/s';
-  const k = 1024;
-  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
-  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
-  return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
 
 export default function Connect() {
   const [servers, setServers] = useState<Server[]>(() => serverStore.getAll());
@@ -129,7 +36,7 @@ export default function Connect() {
   const [listOpen, setListOpen] = useState(false);
 
   const [stats, setStats] = useState<{ rx: number; tx: number; downSpeed: number; upSpeed: number } | null>(null);
-  const prevStatsRef = useRef<{ rx: number; tx: number; time: number } | null>(null);
+  const prevStatsRef = useRef<{ rx: number; tx: number; time: number; downSpeed: number; upSpeed: number } | null>(null);
 
   useEffect(() => {
     const handleStats = (data: any) => {
@@ -140,16 +47,26 @@ export default function Connect() {
       
       if (prevStatsRef.current) {
         const timeDiff = (now - prevStatsRef.current.time) / 1000;
-        if (timeDiff > 0) {
-          const downSpeed = Math.max(0, (rx - prevStatsRef.current.rx) / timeDiff);
-          const upSpeed = Math.max(0, (tx - prevStatsRef.current.tx) / timeDiff);
-          setStats({ rx, tx, downSpeed, upSpeed });
+        if (timeDiff >= 0.2) {
+          const rawDown = Math.max(0, (rx - prevStatsRef.current.rx) / timeDiff);
+          const rawUp = Math.max(0, (tx - prevStatsRef.current.tx) / timeDiff);
+
+          // Экспоненциальное сглаживание скорости для предотвращения моргания
+          const prevDown = prevStatsRef.current.downSpeed || 0;
+          const prevUp = prevStatsRef.current.upSpeed || 0;
+          const downSpeed = rawDown === 0 ? prevDown * 0.4 : prevDown * 0.3 + rawDown * 0.7;
+          const upSpeed = rawUp === 0 ? prevUp * 0.4 : prevUp * 0.3 + rawUp * 0.7;
+
+          const finalDown = downSpeed < 50 ? 0 : downSpeed;
+          const finalUp = upSpeed < 50 ? 0 : upSpeed;
+
+          setStats({ rx, tx, downSpeed: finalDown, upSpeed: finalUp });
+          prevStatsRef.current = { rx, tx, time: now, downSpeed: finalDown, upSpeed: finalUp };
         }
       } else {
         setStats({ rx, tx, downSpeed: 0, upSpeed: 0 });
+        prevStatsRef.current = { rx, tx, time: now, downSpeed: 0, upSpeed: 0 };
       }
-      
-      prevStatsRef.current = { rx, tx, time: now };
     };
 
     EventsOn('stats', handleStats);
@@ -728,18 +645,18 @@ export default function Connect() {
 
           <span className="tunnel-label">{selected ? TUNNEL_LABEL[tunnelState] : 'Нет серверов'}</span>
 
-          {isActive && stats && (
+          {isActive && (
             <div className="stats-card">
               <div className="stats-col">
-                <span className="stats-speed">{formatSpeed(stats.downSpeed)} ↓</span>
+                <span className="stats-speed">{formatSpeed(stats?.downSpeed ?? 0)} ↓</span>
                 <span className="stats-label">Скачано</span>
-                <span className="stats-value">{formatBytes(stats.rx)}</span>
+                <span className="stats-value">{formatBytes(stats?.rx ?? 0)}</span>
               </div>
               <div className="stats-divider" />
               <div className="stats-col">
-                <span className="stats-speed">{formatSpeed(stats.upSpeed)} ↑</span>
+                <span className="stats-speed">{formatSpeed(stats?.upSpeed ?? 0)} ↑</span>
                 <span className="stats-label">Отправлено</span>
-                <span className="stats-value">{formatBytes(stats.tx)}</span>
+                <span className="stats-value">{formatBytes(stats?.tx ?? 0)}</span>
               </div>
             </div>
           )}
