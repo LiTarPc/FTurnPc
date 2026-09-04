@@ -247,15 +247,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
                 <input 
                   type="checkbox" 
                   checked={devMode} 
-                  onChange={e => {
-                    if (e.target.checked) {
-                      const p = prompt('Введите пароль разработчика:');
-                      if (p === 'admin123') setDevMode(true);
-                      else if (p !== null) alert('Неверный пароль');
-                    } else {
-                      setDevMode(false);
-                    }
-                  }} 
+                  onChange={e => setDevMode(e.target.checked)} 
                   style={{ width: 16, height: 16, cursor: 'pointer' }}
                 />
                 <span>Режим разработчика</span>
