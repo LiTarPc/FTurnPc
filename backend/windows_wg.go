@@ -109,9 +109,6 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 	ifIndex := activeIfaceIndex
 	activeRoutesMu.Unlock()
 
-	// Принудительное назначение безопасных DNS и комплексная защита от утечек DNS
-	applyDNSLeakProtection(dnsServers, ifIndex)
-
 	// Добавление маршрутов AllowedIPs через интерфейс WireGuard.
 	// Сплит 0.0.0.0/0 на 0.0.0.0/1 + 128.0.0.0/1 гарантирует приоритет перед дефолтным шлюзом без трюков с метриками.
 	var expandedIPs []string
@@ -130,6 +127,9 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 			log.Printf("[WG] route added: %s via %s", cidr, wgIface)
 		}
 	}
+
+	// Защита от утечек DNS (применяется асинхронно, не задерживая поднятие туннеля)
+	go applyDNSLeakProtection(dnsServers, ifIndex)
 
 	log.Printf("[WG] Туннель %s поднят (userspace)", wgIface)
 	return nil
