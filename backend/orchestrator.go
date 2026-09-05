@@ -186,10 +186,22 @@ type Orchestrator struct {
 	reconnectMu   sync.Mutex
 	reconnecting  bool
 	lw            *wailsLogWriter
+	wakeReconnect chan struct{}
 }
 
 func NewOrchestrator(ctx context.Context, onTray func(bool, int64, int64, int32)) *Orchestrator {
-	return &Orchestrator{appCtx: ctx, onTray: onTray}
+	return &Orchestrator{
+		appCtx:        ctx,
+		onTray:        onTray,
+		wakeReconnect: make(chan struct{}, 1),
+	}
+}
+
+func (o *Orchestrator) triggerReconnect() {
+	select {
+	case o.wakeReconnect <- struct{}{}:
+	default:
+	}
 }
 
 func (o *Orchestrator) Start(p ConnectParams) error {
@@ -230,7 +242,9 @@ func (o *Orchestrator) startEngineOnly(p ConnectParams) error {
 	o.lw.start()
 	log.SetOutput(o.lw)
 
-	engine := NewFreeturnEngine(o.appCtx, o.onTray)
+	engine := NewFreeturnEngine(o.appCtx, o.onTray, func(err error) {
+		o.triggerReconnect()
+	})
 	err = engine.Start(p, prof)
 	if err != nil {
 		runtime.EventsEmit(o.appCtx, "log", "ERROR", fmt.Sprintf("Ошибка запуска FreeTurn: %v", err))
@@ -295,16 +309,25 @@ func (o *Orchestrator) monitorNetwork(p ConnectParams) {
 	}()
 
 	for {
-		time.Sleep(3 * time.Second)
+		select {
+		case <-time.After(3 * time.Second):
+		case <-o.wakeReconnect:
+		}
+
 		o.mu.Lock()
 		stopped := o.userStopped
+		engineRunning := o.engine != nil && o.engine.IsRunning()
 		o.mu.Unlock()
 		if stopped {
 			return
 		}
 
-		if HasNetworkChanged() {
-			runtime.EventsEmit(o.appCtx, "log", "WARN", "Смена сети или потеря подключения. Подготовка к переподключению...")
+		if HasNetworkChanged() || !engineRunning {
+			if !engineRunning {
+				runtime.EventsEmit(o.appCtx, "log", "WARN", "[Auto-Reconnect] Обнаружена остановка FreeTurn. Подготовка к переподключению...")
+			} else {
+				runtime.EventsEmit(o.appCtx, "log", "WARN", "Смена сети или потеря подключения. Подготовка к переподключению...")
+			}
 			
 			o.mu.Lock()
 			engine := o.engine
@@ -327,12 +350,12 @@ func (o *Orchestrator) monitorNetwork(p ConnectParams) {
 					continue // wait until internet is actually available
 				}
 
-				runtime.EventsEmit(o.appCtx, "log", "INFO", "Восстановление туннеля...")
+				runtime.EventsEmit(o.appCtx, "log", "INFO", "[Auto-Reconnect] Восстановление туннеля...")
 				if err := o.startEngineOnly(p); err == nil {
-					runtime.EventsEmit(o.appCtx, "log", "INFO", "Связь успешно восстановлена!")
+					runtime.EventsEmit(o.appCtx, "log", "INFO", "[Auto-Reconnect] Связь успешно восстановлена!")
 					break // exit inner reconnect loop, continue monitoring
 				} else {
-					runtime.EventsEmit(o.appCtx, "log", "WARN", fmt.Sprintf("Ошибка восстановления: %v", err))
+					runtime.EventsEmit(o.appCtx, "log", "WARN", fmt.Sprintf("[Auto-Reconnect] Ошибка восстановления: %v", err))
 				}
 			}
 		}

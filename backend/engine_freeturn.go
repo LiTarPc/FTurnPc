@@ -21,6 +21,8 @@ type FreeturnEngine struct {
 	wg     sync.WaitGroup
 
 	onTray            func(connected bool, rx, tx int64, workers int32)
+	onUnexpectedExit  func(err error)
+	userStopped       bool
 	muIPs             sync.Mutex
 	turnIPs           map[string]bool
 	wgApplied         bool
@@ -31,11 +33,12 @@ type FreeturnEngine struct {
 	exitChan          chan struct{}
 }
 
-func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int32)) *FreeturnEngine {
+func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int32), onUnexpectedExit func(err error)) *FreeturnEngine {
 	return &FreeturnEngine{
-		appCtx:  ctx,
-		onTray:  onTray,
-		turnIPs: make(map[string]bool),
+		appCtx:           ctx,
+		onTray:           onTray,
+		onUnexpectedExit: onUnexpectedExit,
+		turnIPs:          make(map[string]bool),
 	}
 }
 
@@ -162,20 +165,33 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		defer close(e.exitChan)
 		err := e.cmd.Wait()
 		e.mu.Lock()
+		stopped := e.userStopped
 		e.stopStatsLoopLocked()
 		e.mu.Unlock()
 		e.wg.Wait()
 		teardownWG()
 
 		runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
-		runtime.EventsEmit(e.appCtx, "state_changed", "disconnected", "")
-		if e.onTray != nil {
-			e.onTray(false, 0, 0, 0)
+		if stopped {
+			runtime.EventsEmit(e.appCtx, "state_changed", "disconnected", "")
+			if e.onTray != nil {
+				e.onTray(false, 0, 0, 0)
+			}
+		} else {
+			runtime.EventsEmit(e.appCtx, "state_changed", "connecting", "")
+			if e.onTray != nil {
+				e.onTray(false, 0, 0, 0)
+			}
 		}
+
 		e.mu.Lock()
 		e.cmd = nil
 		e.cancel = nil
 		e.mu.Unlock()
+
+		if !stopped && e.onUnexpectedExit != nil {
+			e.onUnexpectedExit(err)
+		}
 	}()
 
 	return nil
@@ -183,6 +199,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 
 func (e *FreeturnEngine) Stop() {
 	e.mu.Lock()
+	e.userStopped = true
 	cancel := e.cancel
 	cmd := e.cmd
 	exitChan := e.exitChan

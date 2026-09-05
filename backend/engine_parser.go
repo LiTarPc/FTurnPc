@@ -126,15 +126,9 @@ func (e *FreeturnEngine) parseLogs(r io.Reader, wgConfig string, bypassRu bool, 
 			}
 		}
 
-		// 3. Блокировка VK DNS авторизации
+		// 3. Предупреждение об ошибке авторизации VK (поток автоматически повторит попытку)
 		if strings.Contains(line, "all VK credentials failed") {
-			runtime.EventsEmit(e.appCtx, "log", "ERROR", "[WG] Обнаружена блокировка DNS для VK Auth. Принудительный перезапуск туннеля...")
-			e.mu.Lock()
-			cmd := e.cmd
-			e.mu.Unlock()
-			if cmd != nil && cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
+			runtime.EventsEmit(e.appCtx, "log", "WARN", "[WG] Ошибка получения токена VK для потока. Ожидание автоматической повторной попытки...")
 		}
 
 		// 4. Детекция запроса ручного ввода капчи (поддержка портов 8765 и 2212)

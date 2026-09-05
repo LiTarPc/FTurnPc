@@ -5,7 +5,6 @@ package backend
 import (
 	"fmt"
 	"log"
-	"net"
 	"strings"
 	"time"
 )
@@ -36,7 +35,8 @@ func applyDNSLeakProtection(dnsServers []string, ifIndex int) {
 	_ = run("reg", "add", "HKLM\\Software\\Policies\\Microsoft\\Windows NT\\DNSClient",
 		"/v", "DisableSmartNameResolution", "/t", "REG_DWORD", "/d", "1", "/f")
 
-	// 4 & 5. Добавление NRPT-правила и блокировка DNS в брандмауэре Windows в ОДНОМ вызове PowerShell
+	// 4. Добавление NRPT-правила (Name Resolution Policy Table) для перенаправления всех DNS-запросов (.) в туннель
+	// и удаление устаревших правил блокировки порта 53 на физическом адаптере, чтобы не блокировать VK Auth
 	var quotedServers []string
 	for _, s := range dnsServers {
 		quotedServers = append(quotedServers, fmt.Sprintf("'%s'", strings.TrimSpace(s)))
@@ -44,15 +44,8 @@ func applyDNSLeakProtection(dnsServers []string, ifIndex int) {
 
 	var psBatch strings.Builder
 	psBatch.WriteString("$ErrorActionPreference = 'SilentlyContinue'; ")
+	psBatch.WriteString("Remove-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_UDP','FTurn_Block_DNS_Leak_TCP'; ")
 	psBatch.WriteString(fmt.Sprintf("Add-DnsClientNrptRule -Namespace '.' -NameServers @(%s) -DisplayName 'FTurn_DNS_Rule'; ", strings.Join(quotedServers, ",")))
-
-	if ifIndex > 0 {
-		if iface, err := net.InterfaceByIndex(ifIndex); err == nil && iface.Name != "" {
-			psBatch.WriteString("Remove-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_UDP','FTurn_Block_DNS_Leak_TCP'; ")
-			psBatch.WriteString(fmt.Sprintf("New-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_UDP' -Direction Outbound -Action Block -Protocol UDP -RemotePort 53 -InterfaceAlias '%s'; ", iface.Name))
-			psBatch.WriteString(fmt.Sprintf("New-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_TCP' -Direction Outbound -Action Block -Protocol TCP -RemotePort 53 -InterfaceAlias '%s'; ", iface.Name))
-		}
-	}
 
 	_ = runWithTimeout(15*time.Second, "powershell", "-NoProfile", "-NonInteractive", "-Command", psBatch.String())
 
