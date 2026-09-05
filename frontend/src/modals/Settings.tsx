@@ -27,6 +27,7 @@ export default function Settings({ onClose }: Props) {
   const [coreChecking, setCoreChecking] = useState(false);
   const [coreUpdating, setCoreUpdating] = useState(false);
   const [coreProgress, setCoreProgress] = useState(0);
+  const [coreProgressMsg, setCoreProgressMsg] = useState<string>('');
 
   // Sync autoStart and GetCoreVersion on open
   useEffect(() => {
@@ -37,11 +38,21 @@ export default function Settings({ onClose }: Props) {
 
     const w = window as any;
     if (w.runtime?.EventsOn) {
-      w.runtime.EventsOn('core_update_progress', (p: number) => setCoreProgress(p));
-      w.runtime.EventsOn('core_update_done', () => {
+      w.runtime.EventsOn('core_update_progress', (p: number, msg?: string) => {
+        setCoreProgress(p);
+        if (msg) setCoreProgressMsg(msg);
+      });
+      w.runtime.EventsOn('core_update_done', (newVer?: string) => {
         setCoreUpdating(false);
-        GetCoreVersion().then((v: any) => setCoreVer(v || 'Установлен'));
-        setCoreUpdate(null);
+        setCoreProgressMsg('');
+        const v = typeof newVer === 'string' && newVer ? newVer : '';
+        if (v) {
+          setCoreVer(v);
+          setCoreUpdate((prev: any) => prev ? { ...prev, hasUpdate: false, currentVersion: v } : null);
+        } else {
+          GetCoreVersion().then((ver: any) => setCoreVer(ver || 'Установлен'));
+          setCoreUpdate((prev: any) => prev ? { ...prev, hasUpdate: false } : null);
+        }
       });
     }
   }, []);
@@ -63,11 +74,13 @@ export default function Settings({ onClose }: Props) {
     if (!coreUpdate?.downloadUrl && !coreUpdate?.hasUpdate) return;
     setCoreUpdating(true);
     setCoreProgress(5);
+    setCoreProgressMsg('Подключение к серверу GitHub...');
     try {
       await UpdateCore(coreUpdate.downloadUrl || '');
     } catch (e: any) {
       alert('Ошибка обновления ядра: ' + e);
       setCoreUpdating(false);
+      setCoreProgressMsg('');
     }
   };
 
@@ -233,7 +246,7 @@ export default function Settings({ onClose }: Props) {
             )}
             {coreUpdating && (
               <div style={{ margin: '8px 0 4px 0', fontSize: '11px', color: '#60a5fa' }}>
-                Загрузка и установка: {coreProgress}%
+                {coreProgressMsg || `Загрузка и установка: ${coreProgress}%`}
                 <div style={{ background: '#334155', height: '4px', borderRadius: '2px', overflow: 'hidden', marginTop: '4px' }}>
                   <div style={{ background: '#3b82f6', width: `${coreProgress}%`, height: '100%', transition: 'width 0.2s' }} />
                 </div>

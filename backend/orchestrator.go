@@ -187,6 +187,7 @@ type Orchestrator struct {
 	reconnecting  bool
 	lw            *wailsLogWriter
 	wakeReconnect chan struct{}
+	lastParams    ConnectParams
 }
 
 func NewOrchestrator(ctx context.Context, onTray func(bool, int64, int64, int32)) *Orchestrator {
@@ -212,6 +213,7 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 		return fmt.Errorf("already running")
 	}
 	o.userStopped = false
+	o.lastParams = p
 	o.mu.Unlock()
 
 	if err := o.startEngineOnly(p); err != nil {
@@ -220,6 +222,12 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 
 	go o.monitorNetwork(p)
 	return nil
+}
+
+func (o *Orchestrator) LastParams() ConnectParams {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.lastParams
 }
 
 func (o *Orchestrator) startEngineOnly(p ConnectParams) error {

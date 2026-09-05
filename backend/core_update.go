@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"debug/buildinfo"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,16 +53,62 @@ func GetCoreVersion() string {
 		return "Не установлен"
 	}
 
-	// 1. Попробуем выполнить freeturnclient -gen-obf-key, чтобы вытащить версию из логов
+	// 1. Проверяем сохранённый файл версии рядом с бинарником
+	verFile := filepath.Join(filepath.Dir(exePath), "core_version.txt")
+	if data, err := os.ReadFile(verFile); err == nil {
+		ver := strings.TrimSpace(string(data))
+		if ver != "" {
+			return ver
+		}
+	}
+
+	// 2. Читаем BuildInfo из бинарника Go (vcs.revision, main.version)
+	if bi, err := buildinfo.ReadFile(exePath); err == nil {
+		if bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+			_ = os.WriteFile(verFile, []byte(bi.Main.Version), 0644)
+			return bi.Main.Version
+		}
+		for _, s := range bi.Settings {
+			if s.Key == "vcs.revision" {
+				rev := s.Value
+				if strings.HasPrefix(rev, "fa9549e6") {
+					_ = os.WriteFile(verFile, []byte("v3.2.0"), 0644)
+					return "v3.2.0"
+				}
+				if strings.HasPrefix(rev, "aed2839c") {
+					_ = os.WriteFile(verFile, []byte("v3.1.1"), 0644)
+					return "v3.1.1"
+				}
+				break
+			}
+		}
+	}
+
+	// 3. Пробуем -help для проверки уникальных флагов версий
+	ctxHelp, cancelHelp := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelHelp()
+	cmdHelp := exec.CommandContext(ctxHelp, exePath, "-help")
+	hideWindow(cmdHelp)
+	outHelp, _ := cmdHelp.CombinedOutput()
+	outStr := string(outHelp)
+	if strings.Contains(outStr, "-platform") || strings.Contains(outStr, "-routes") {
+		// Флаги -platform и -routes добавлены в v3.2.0
+		_ = os.WriteFile(verFile, []byte("v3.2.0"), 0644)
+		return "v3.2.0"
+	} else if strings.Contains(outStr, "-dns-mode") || strings.Contains(outStr, "-manual-captcha") {
+		return "v3.1.x"
+	} else if strings.Contains(outStr, "-mode") {
+		return "v2.x.x"
+	}
+
+	// 4. Попробуем выполнить freeturnclient -gen-obf-key (для старых версий вроде v1.7.0)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-
 	cmd := exec.CommandContext(ctx, exePath, "-gen-obf-key")
 	hideWindow(cmd)
 	out, _ := cmd.CombinedOutput()
 	if len(out) > 0 {
-		lines := strings.Split(string(out), "\n")
-		for _, line := range lines {
+		for _, line := range strings.Split(string(out), "\n") {
 			if strings.Contains(line, "version=") {
 				parts := strings.Split(line, "version=")
 				if len(parts) >= 2 {
@@ -69,26 +116,13 @@ func GetCoreVersion() string {
 					if !strings.HasPrefix(ver, "v") {
 						ver = "v" + ver
 					}
+					_ = os.WriteFile(verFile, []byte(ver), 0644)
 					return ver
 				}
 			}
 		}
 	}
 
-	// 2. Попробуем выполнить freeturnclient -help, чтобы по флагам определить версию (v3.x.x убрал -mode и добавил -dns-mode)
-	ctxHelp, cancelHelp := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelHelp()
-	cmdHelp := exec.CommandContext(ctxHelp, exePath, "-help")
-	hideWindow(cmdHelp)
-	outHelp, _ := cmdHelp.CombinedOutput()
-	outStr := string(outHelp)
-	if strings.Contains(outStr, "-dns-mode") || strings.Contains(outStr, "-manual-captcha") {
-		return "v3.x.x"
-	} else if strings.Contains(outStr, "-mode") {
-		return "v2.x.x"
-	}
-
-	// 3. Если аргумент -version не вернул данных, покажем дату изменения файла
 	fi, err := os.Stat(exePath)
 	if err == nil {
 		return fmt.Sprintf("Бинарный файл от %s", fi.ModTime().Format("2006-01-02"))
@@ -135,9 +169,11 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 	downloadURL := ""
 	goos := goruntime.GOOS
 	goarch := goruntime.GOARCH
+	var matchedAsset *githubReleaseAsset
 
 	// 1. Точный поиск: клиент + ОС + архитектура
-	for _, asset := range rel.Assets {
+	for i := range rel.Assets {
+		asset := &rel.Assets[i]
 		name := strings.ToLower(asset.Name)
 
 		// Исключаем серверные бинарники и неисполняемые файлы
@@ -149,7 +185,6 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 
 		matchOS := false
 		if goos == "windows" {
-			// Важно: проверяем "windows" или расширение ".exe", чтобы не сработать на "darwin"
 			matchOS = strings.Contains(name, "windows") || strings.Contains(name, "win32") || strings.Contains(name, "win64") || strings.HasSuffix(name, ".exe")
 		} else if goos == "darwin" {
 			matchOS = strings.Contains(name, "darwin") || strings.Contains(name, "macos") || strings.Contains(name, "osx") || strings.Contains(name, "apple")
@@ -168,13 +203,15 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 
 		if isClient && matchOS && matchArch {
 			downloadURL = asset.BrowserDownloadURL
+			matchedAsset = asset
 			break
 		}
 	}
 
 	// 2. Мягкий поиск (если архитектура не указана в имени файла)
 	if downloadURL == "" {
-		for _, asset := range rel.Assets {
+		for i := range rel.Assets {
+			asset := &rel.Assets[i]
 			name := strings.ToLower(asset.Name)
 			if strings.Contains(name, "server") || strings.HasSuffix(name, ".jar") || strings.HasSuffix(name, ".aar") || strings.HasSuffix(name, ".txt") {
 				continue
@@ -182,21 +219,45 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 			if strings.Contains(name, "client") || strings.Contains(name, "freeturn") {
 				if goos == "windows" && (strings.Contains(name, "windows") || strings.HasSuffix(name, ".exe")) {
 					downloadURL = asset.BrowserDownloadURL
+					matchedAsset = asset
 					break
 				} else if goos == "darwin" && (strings.Contains(name, "darwin") || strings.Contains(name, "macos") || strings.Contains(name, "osx")) {
 					downloadURL = asset.BrowserDownloadURL
+					matchedAsset = asset
 					break
 				} else if goos == "linux" && strings.Contains(name, "linux") && !strings.Contains(name, "android") {
 					downloadURL = asset.BrowserDownloadURL
+					matchedAsset = asset
 					break
 				}
 			}
 		}
 	}
 
-	// Если у нас еще вообще нет версии или версия отличается
 	info.DownloadURL = downloadURL
-	if downloadURL != "" && (currentVer == "Не установлен" || !strings.Contains(currentVer, rel.TagName)) {
+
+	// Сверка размера локального файла с ассетом релиза:
+	// если размер совпадает с байтовой точностью, то локально уже установлена именно эта версия
+	exePath := getFreeturnPath()
+	if matchedAsset != nil {
+		if fi, err := os.Stat(exePath); err == nil && fi.Size() == matchedAsset.Size {
+			currentVer = rel.TagName
+			info.CurrentVersion = currentVer
+			verFile := filepath.Join(filepath.Dir(exePath), "core_version.txt")
+			_ = os.WriteFile(verFile, []byte(currentVer), 0644)
+		}
+	}
+
+	normCurrent := strings.TrimPrefix(strings.TrimSpace(currentVer), "v")
+	normLatest := strings.TrimPrefix(strings.TrimSpace(rel.TagName), "v")
+
+	if downloadURL != "" && currentVer != "Не установлен" {
+		if normCurrent == normLatest || strings.Contains(currentVer, rel.TagName) {
+			info.HasUpdate = false
+		} else {
+			info.HasUpdate = true
+		}
+	} else if downloadURL != "" && currentVer == "Не установлен" {
 		info.HasUpdate = true
 	}
 
@@ -205,6 +266,7 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 
 // UpdateCore скачивает и обновляет freeturnclient
 func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func()) error {
+	var targetVer string
 	if downloadURL == "" {
 		info, err := CheckCoreUpdate()
 		if err != nil {
@@ -214,10 +276,18 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 			return fmt.Errorf("не удалось найти подходящий дистрибутив для скачивания")
 		}
 		downloadURL = info.DownloadURL
+		targetVer = info.LatestVersion
+	} else {
+		if parts := strings.Split(downloadURL, "/download/"); len(parts) > 1 {
+			subParts := strings.Split(parts[1], "/")
+			if len(subParts) > 0 {
+				targetVer = subParts[0]
+			}
+		}
 	}
 
 	log.Printf("[CoreUpdate] Загрузка обновления ядра с %s...", downloadURL)
-	runtime.EventsEmit(ctx, "core_update_progress", 5)
+	runtime.EventsEmit(ctx, "core_update_progress", 5, "Подключение к серверу GitHub...")
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -244,8 +314,10 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 	totalSize := resp.ContentLength
 	var downloaded int64
 
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, 64*1024)
 	var bodyBytes bytes.Buffer
+	lastEmitTime := time.Now()
+	lastEmitPercent := -1
 
 	for {
 		n, err := resp.Body.Read(buf)
@@ -254,7 +326,15 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 			downloaded += int64(n)
 			if totalSize > 0 {
 				percent := int(float64(downloaded) / float64(totalSize) * 80)
-				runtime.EventsEmit(ctx, "core_update_progress", 10+percent)
+				now := time.Now()
+				if percent != lastEmitPercent && (now.Sub(lastEmitTime) >= 100*time.Millisecond || percent >= 80) {
+					lastEmitTime = now
+					lastEmitPercent = percent
+					mbDownloaded := float64(downloaded) / 1024 / 1024
+					mbTotal := float64(totalSize) / 1024 / 1024
+					msg := fmt.Sprintf("Загрузка: %.1f / %.1f МБ (%d%%)", mbDownloaded, mbTotal, 10+percent)
+					runtime.EventsEmit(ctx, "core_update_progress", 10+percent, msg)
+				}
 			}
 		}
 		if err == io.EOF {
@@ -265,7 +345,7 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 		}
 	}
 
-	runtime.EventsEmit(ctx, "core_update_progress", 90)
+	runtime.EventsEmit(ctx, "core_update_progress", 92, "Проверка пакета...")
 
 	// Определение формата скачанных данных (ZIP или Raw Executable)
 	var exeBytes []byte
@@ -329,6 +409,7 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 
 	// Остановка активного процесса перед заменой бинарника на диске
 	if beforeReplaceFn != nil {
+		runtime.EventsEmit(ctx, "core_update_progress", 95, "Остановка сессии перед заменой...")
 		log.Printf("[CoreUpdate] Загрузка завершена. Остановка текущей сессии перед заменой бинарного файла...")
 		beforeReplaceFn()
 		time.Sleep(500 * time.Millisecond)
@@ -345,6 +426,7 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 		targetPath = filepath.Join(filepath.Dir(exe), exeName)
 	}
 
+	runtime.EventsEmit(ctx, "core_update_progress", 97, "Установка файла ядра...")
 	log.Printf("[CoreUpdate] Запись нового исполняемого файла в %s (%d байт)...", targetPath, len(exeBytes))
 
 	// Замена файла (с бэкапом старого для Windows)
@@ -365,9 +447,16 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 
 	_ = os.Remove(oldBackupPath)
 
-	runtime.EventsEmit(ctx, "core_update_progress", 100)
-	runtime.EventsEmit(ctx, "core_update_done", "success")
-	log.Printf("[CoreUpdate] Ядро FreeTurn успешно обновлено!")
+	if targetVer != "" {
+		verFile := filepath.Join(filepath.Dir(targetPath), "core_version.txt")
+		_ = os.WriteFile(verFile, []byte(targetVer), 0644)
+	} else {
+		targetVer = GetCoreVersion()
+	}
+
+	runtime.EventsEmit(ctx, "core_update_progress", 100, "Ядро успешно обновлено!")
+	runtime.EventsEmit(ctx, "core_update_done", targetVer)
+	log.Printf("[CoreUpdate] Ядро FreeTurn успешно обновлено до %s!", targetVer)
 	return nil
 }
 
@@ -433,8 +522,14 @@ func SelectAndReplaceCore(ctx context.Context, beforeReplaceFn func()) (string, 
 	}
 	_ = os.Remove(oldBackupPath)
 
+	// Удаляем старый кеш версии перед определением
+	verFile := filepath.Join(filepath.Dir(targetPath), "core_version.txt")
+	_ = os.Remove(verFile)
+
 	newVersion := GetCoreVersion()
-	runtime.EventsEmit(ctx, "core_update_done", "success")
+	_ = os.WriteFile(verFile, []byte(newVersion), 0644)
+
+	runtime.EventsEmit(ctx, "core_update_done", newVersion)
 	log.Printf("[CoreUpdate] Ядро успешно заменено вручную из %s. Новая версия: %s", selectedFile, newVersion)
 	return newVersion, nil
 }

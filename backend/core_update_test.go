@@ -41,3 +41,38 @@ func TestCoreAssetSelection(t *testing.T) {
 		t.Fatalf("Expected client-windows-amd64.exe, got: %s", selected)
 	}
 }
+
+func TestVersionComparison(t *testing.T) {
+	testCases := []struct {
+		current  string
+		latest   string
+		expected bool
+	}{
+		{"v3.2.0", "v3.2.0", false},
+		{"3.2.0", "v3.2.0", false},
+		{"v3.2.0", "3.2.0", false},
+		{"v3.1.1", "v3.2.0", true},
+		{"v3.x.x", "v3.2.0", true},
+		{"Не установлен", "v3.2.0", true},
+	}
+
+	for _, tc := range testCases {
+		normCurrent := strings.TrimPrefix(strings.TrimSpace(tc.current), "v")
+		normLatest := strings.TrimPrefix(strings.TrimSpace(tc.latest), "v")
+
+		var hasUpdate bool
+		if tc.current != "Не установлен" {
+			if normCurrent == normLatest || strings.Contains(tc.current, tc.latest) {
+				hasUpdate = false
+			} else {
+				hasUpdate = true
+			}
+		} else {
+			hasUpdate = true
+		}
+
+		if hasUpdate != tc.expected {
+			t.Errorf("For current=%s latest=%s, expected hasUpdate=%v, got %v", tc.current, tc.latest, tc.expected, hasUpdate)
+		}
+	}
+}

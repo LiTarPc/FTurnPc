@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -140,12 +141,24 @@ func (a *App) CheckCoreUpdate() (CoreUpdateInfo, error) {
 }
 
 func (a *App) UpdateCore(downloadURL string) error {
+	wasRunning := a.orch != nil && a.orch.IsRunning()
+	var lastParams ConnectParams
+	if wasRunning {
+		lastParams = a.orch.LastParams()
+	}
 	stopFn := func() {
-		if a.orch != nil && a.orch.IsRunning() {
+		if wasRunning {
 			a.orch.Stop()
 		}
 	}
-	return UpdateCore(a.ctx, downloadURL, stopFn)
+	err := UpdateCore(a.ctx, downloadURL, stopFn)
+	if err == nil && wasRunning {
+		go func() {
+			time.Sleep(1 * time.Second)
+			_ = a.orch.Start(lastParams)
+		}()
+	}
+	return err
 }
 
 func (a *App) GetCoreVersion() string {
@@ -153,10 +166,22 @@ func (a *App) GetCoreVersion() string {
 }
 
 func (a *App) SelectAndReplaceCore() (string, error) {
+	wasRunning := a.orch != nil && a.orch.IsRunning()
+	var lastParams ConnectParams
+	if wasRunning {
+		lastParams = a.orch.LastParams()
+	}
 	stopFn := func() {
-		if a.orch != nil && a.orch.IsRunning() {
+		if wasRunning {
 			a.orch.Stop()
 		}
 	}
-	return SelectAndReplaceCore(a.ctx, stopFn)
+	newVer, err := SelectAndReplaceCore(a.ctx, stopFn)
+	if err == nil && wasRunning {
+		go func() {
+			time.Sleep(1 * time.Second)
+			_ = a.orch.Start(lastParams)
+		}()
+	}
+	return newVer, err
 }
