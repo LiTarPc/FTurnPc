@@ -178,10 +178,10 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		stopped := e.userStopped
 		e.stopStatsLoopLocked()
 		e.mu.Unlock()
-		e.wg.Wait()
 		if e.onBeforeTeardown != nil {
 			e.onBeforeTeardown(stopped)
 		}
+		e.wg.Wait()
 		teardownWG()
 
 		runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))

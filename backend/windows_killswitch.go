@@ -10,10 +10,189 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
+
+var (
+	modiphlpapi             = syscall.NewLazyDLL("iphlpapi.dll")
+	procGetExtendedTcpTable = modiphlpapi.NewProc("GetExtendedTcpTable")
+	procSetTcpEntry         = modiphlpapi.NewProc("SetTcpEntry")
+	moddnsapi               = syscall.NewLazyDLL("dnsapi.dll")
+	procDnsFlushCache       = moddnsapi.NewProc("DnsFlushResolverCache")
+)
+
+const (
+	tcpTableOwnerPidAll  = 5
+	afInet               = 2
+	mibTcpStateDeleteTcb = 12
+)
+
+type mibTcpRow struct {
+	dwState      uint32
+	dwLocalAddr  uint32
+	dwLocalPort  uint32
+	dwRemoteAddr uint32
+	dwRemotePort uint32
+}
+
+// TerminateBrowserSockets находит активные процессы браузеров и немедленно сбрасывает (RST) все их открытые TCP-соединения,
+// а также сбрасывает DNS-кэш Windows. Это устраняет задержку блокировки из-за Keep-Alive HTTP/2 / QUIC сессий.
+func TerminateBrowserSockets(paths []string) {
+	targetNames := make(map[string]bool)
+	for _, p := range paths {
+		base := strings.ToLower(filepath.Base(p))
+		if base != "" && !isIgnoredBrowser(base) {
+			targetNames[base] = true
+		}
+	}
+	if len(targetNames) == 0 {
+		return
+	}
+
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return
+	}
+	defer windows.CloseHandle(snapshot)
+
+	var pe windows.ProcessEntry32
+	pe.Size = uint32(unsafe.Sizeof(pe))
+
+	targetPids := make(map[uint32]bool)
+	if err := windows.Process32First(snapshot, &pe); err == nil {
+		for {
+			name := strings.ToLower(windows.UTF16ToString(pe.ExeFile[:]))
+			if targetNames[name] {
+				targetPids[pe.ProcessID] = true
+			}
+			if err := windows.Process32Next(snapshot, &pe); err != nil {
+				break
+			}
+		}
+	}
+
+	if len(targetPids) == 0 {
+		return
+	}
+
+	var size uint32
+	_, _, _ = procGetExtendedTcpTable.Call(
+		0,
+		uintptr(unsafe.Pointer(&size)),
+		1,
+		uintptr(afInet),
+		uintptr(tcpTableOwnerPidAll),
+		0,
+	)
+	if size == 0 {
+		return
+	}
+
+	buf := make([]byte, size)
+	r1, _, _ := procGetExtendedTcpTable.Call(
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(unsafe.Pointer(&size)),
+		1,
+		uintptr(afInet),
+		uintptr(tcpTableOwnerPidAll),
+		0,
+	)
+	if r1 != 0 {
+		return
+	}
+
+	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
+	entrySize := uintptr(24)
+	entriesPtr := uintptr(unsafe.Pointer(&buf[4]))
+
+	closedCount := 0
+	for i := uintptr(0); i < uintptr(numEntries); i++ {
+		rowPtr := entriesPtr + i*entrySize
+		state := *(*uint32)(unsafe.Pointer(rowPtr))
+		owningPid := *(*uint32)(unsafe.Pointer(rowPtr + 20))
+
+		// Сбрасываем только если соединение принадлежит целевому браузеру и не находится в LISTEN (2) или CLOSED (1)
+		if targetPids[owningPid] && state != 1 && state != 2 {
+			killRow := mibTcpRow{
+				dwState:      mibTcpStateDeleteTcb,
+				dwLocalAddr:  *(*uint32)(unsafe.Pointer(rowPtr + 4)),
+				dwLocalPort:  *(*uint32)(unsafe.Pointer(rowPtr + 8)),
+				dwRemoteAddr: *(*uint32)(unsafe.Pointer(rowPtr + 12)),
+				dwRemotePort: *(*uint32)(unsafe.Pointer(rowPtr + 16)),
+			}
+			procSetTcpEntry.Call(uintptr(unsafe.Pointer(&killRow)))
+			closedCount++
+		}
+	}
+
+	// Сбрасываем кэш DNS Windows
+	_, _, _ = procDnsFlushCache.Call()
+
+	if closedCount > 0 {
+		log.Printf("[Kill-Switch] Мгновенно сброшено %d открытых TCP-соединений браузеров", closedCount)
+	}
+}
+
+// ApplyBrowserKillSwitch накладывает правила блокировки в брандмауэре Windows для указанных браузеров
+func ApplyBrowserKillSwitch(paths []string) error {
+	ksMu.Lock()
+	defer ksMu.Unlock()
+
+	var validPaths []string
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p != "" && !isIgnoredBrowser(p) {
+			if _, err := os.Stat(p); err == nil {
+				validPaths = append(validPaths, p)
+			}
+		}
+	}
+
+	if len(validPaths) == 0 {
+		return nil
+	}
+
+	log.Printf("[Kill-Switch] Активация блокировки браузеров (%d шт.)...", len(validPaths))
+
+	// Формируем пакет команд для netsh через временный файл
+	var batchContent strings.Builder
+	var newRules []string
+
+	for i, path := range validPaths {
+		ruleName := fmt.Sprintf("FTurn_KS_%d", i)
+		newRules = append(newRules, ruleName)
+
+		// Сначала удаляем возможно зависшее правило с таким же именем, затем добавляем блокирующее
+		batchContent.WriteString(fmt.Sprintf("advfirewall firewall delete rule name=\"%s\"\n", ruleName))
+		batchContent.WriteString(fmt.Sprintf("advfirewall firewall add rule name=\"%s\" dir=out action=block program=\"%s\" enable=yes\n", ruleName, path))
+	}
+
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("ft_ks_apply_%d.txt", time.Now().UnixNano()))
+	if err := os.WriteFile(tmpFile, []byte(batchContent.String()), 0600); err != nil {
+		return fmt.Errorf("write ks batch file: %w", err)
+	}
+	defer os.Remove(tmpFile)
+
+	start := time.Now()
+	err := runWithTimeout(5*time.Second, "netsh", "-f", tmpFile)
+	if err != nil {
+		log.Printf("[Kill-Switch] Ошибка netsh при наложении правил: %v", err)
+		return err
+	}
+
+	ksActiveRules = newRules
+
+	// Мгновенно принудительно обрываем все активные сокеты браузеров
+	TerminateBrowserSockets(validPaths)
+
+	log.Printf("[Kill-Switch] Правила блокировки успешно применены за %v (%d правил)", time.Since(start), len(newRules))
+	return nil
+}
 
 // BrowserInfo содержит информацию об обнаруженном браузере
 type BrowserInfo struct {
@@ -195,58 +374,6 @@ func DetectInstalledBrowsers() []BrowserInfo {
 	}
 
 	return list
-}
-
-// ApplyBrowserKillSwitch накладывает правила блокировки в брандмауэре Windows для указанных браузеров
-func ApplyBrowserKillSwitch(paths []string) error {
-	ksMu.Lock()
-	defer ksMu.Unlock()
-
-	var validPaths []string
-	for _, p := range paths {
-		p = strings.TrimSpace(p)
-		if p != "" && !isIgnoredBrowser(p) {
-			if _, err := os.Stat(p); err == nil {
-				validPaths = append(validPaths, p)
-			}
-		}
-	}
-
-	if len(validPaths) == 0 {
-		return nil
-	}
-
-	log.Printf("[Kill-Switch] Активация блокировки браузеров (%d шт.)...", len(validPaths))
-
-	// Формируем пакет команд для netsh через временный файл
-	var batchContent strings.Builder
-	var newRules []string
-
-	for i, path := range validPaths {
-		ruleName := fmt.Sprintf("FTurn_KS_%d", i)
-		newRules = append(newRules, ruleName)
-
-		// Сначала удаляем возможно зависшее правило с таким же именем, затем добавляем блокирующее
-		batchContent.WriteString(fmt.Sprintf("advfirewall firewall delete rule name=\"%s\"\n", ruleName))
-		batchContent.WriteString(fmt.Sprintf("advfirewall firewall add rule name=\"%s\" dir=out action=block program=\"%s\" enable=yes\n", ruleName, path))
-	}
-
-	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("ft_ks_apply_%d.txt", time.Now().UnixNano()))
-	if err := os.WriteFile(tmpFile, []byte(batchContent.String()), 0600); err != nil {
-		return fmt.Errorf("write ks batch file: %w", err)
-	}
-	defer os.Remove(tmpFile)
-
-	start := time.Now()
-	err := runWithTimeout(5*time.Second, "netsh", "-f", tmpFile)
-	if err != nil {
-		log.Printf("[Kill-Switch] Ошибка netsh при наложении правил: %v", err)
-		return err
-	}
-
-	ksActiveRules = newRules
-	log.Printf("[Kill-Switch] Правила блокировки успешно применены за %v (%d правил)", time.Since(start), len(newRules))
-	return nil
 }
 
 // RemoveBrowserKillSwitch снимает правила блокировки браузеров

@@ -32,7 +32,7 @@ export function getActiveProtectedBrowsers(
 
 export async function syncKillSwitchConfig(settings: AppSettings, detectedBrowsers?: BrowserItem[]) {
   try {
-    const list = detectedBrowsers ?? (await GetDetectedBrowsers());
+    const list = (detectedBrowsers && detectedBrowsers.length > 0) ? detectedBrowsers : (await GetDetectedBrowsers());
     const active = getActiveProtectedBrowsers(list, settings.disabledBrowsers || [], settings.customBrowsers || []);
     await SetKillSwitchConfig(!!settings.browserKillSwitch, settings.killSwitchMode || 'reconnect', active);
   } catch (e) {

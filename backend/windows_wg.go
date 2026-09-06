@@ -33,13 +33,24 @@ func InitWintun(dll []byte) { wintunDLL = dll }
 
 // extractWintun извлекает embedded wintun.dll в директорию рядом с исполняемым файлом.
 func extractWintun() error {
+	if len(wintunDLL) == 0 {
+		return nil
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	dst := filepath.Join(filepath.Dir(exe), "wintun.dll")
-	if _, err := os.Stat(dst); err == nil {
-		return nil // уже извлечён
+	if fi, err := os.Stat(dst); err == nil {
+		if fi.Size() == int64(len(wintunDLL)) {
+			return nil // уже извлечён правильный wintun.dll нужной архитектуры
+		}
+		// Архитектура на диске не совпадает с запущенным процессом.
+		// Пробуем переместить/удалить устаревший файл перед записью нужной версии.
+		oldDst := filepath.Join(filepath.Dir(exe), fmt.Sprintf("wintun_old_%d.dll", time.Now().Unix()))
+		if renameErr := os.Rename(dst, oldDst); renameErr != nil {
+			_ = os.Remove(dst)
+		}
 	}
 	return os.WriteFile(dst, wintunDLL, 0644)
 }

@@ -318,6 +318,19 @@ func (o *Orchestrator) Stop() {
 	o.userStopped = true
 	engine := o.engine
 	o.mu.Unlock()
+
+	o.ksMu.Lock()
+	cfg := o.ksConfig
+	o.ksMu.Unlock()
+
+	// 1. В строгом режиме мгновенно блокируем браузеры ДО остановки ядра и сброса маршрутов
+	if cfg.Enabled && cfg.Mode == "strict" && len(cfg.Browsers) > 0 {
+		_ = ApplyBrowserKillSwitch(cfg.Browsers)
+		o.ksMu.Lock()
+		o.ksActive = true
+		o.ksMu.Unlock()
+		runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("[Kill-Switch] Строгий режим: браузеры заблокированы ДО остановки туннеля (%d шт.)", len(cfg.Browsers)))
+	}
 	
 	if engine != nil {
 		engine.Stop()
@@ -325,17 +338,8 @@ func (o *Orchestrator) Stop() {
 	
 	o.stopLogWriter()
 
-	o.ksMu.Lock()
-	cfg := o.ksConfig
-	o.ksMu.Unlock()
-
-	if cfg.Enabled && cfg.Mode == "strict" && len(cfg.Browsers) > 0 {
-		_ = ApplyBrowserKillSwitch(cfg.Browsers)
-		o.ksMu.Lock()
-		o.ksActive = true
-		o.ksMu.Unlock()
-		runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("[Kill-Switch] Строгий режим: браузеры заблокированы (VPN отключён, %d шт.)", len(cfg.Browsers)))
-	} else {
+	// 2. Если режим НЕ строгий (или Kill-Switch выключен) — снимаем блокировку после остановки
+	if !cfg.Enabled || cfg.Mode != "strict" {
 		_ = RemoveBrowserKillSwitch()
 		o.ksMu.Lock()
 		o.ksActive = false
