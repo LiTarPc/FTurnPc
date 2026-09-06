@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle, IconActivity, IconRefresh, IconDownload, IconFolderOpen } from '@tabler/icons-react';
+import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle, IconActivity, IconRefresh, IconDownload, IconFolderOpen, IconShield, IconPlus, IconTrash } from '@tabler/icons-react';
 import { settingsStore } from '../lib/store';
 import { tunnelStore } from '../lib/stores/tunnelStore';
 import type { AppSettings } from '../lib/types';
-import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT, CheckCoreUpdate, UpdateCore, GetCoreVersion, SelectAndReplaceCore } from '../../wailsjs/go/backend/App';
+import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT, CheckCoreUpdate, UpdateCore, GetCoreVersion, SelectAndReplaceCore, GetDetectedBrowsers, SelectCustomBrowserExe } from '../../wailsjs/go/backend/App';
+import { syncKillSwitchConfig, type BrowserItem } from '../lib/killswitch';
 
 interface Props {
   onClose: () => void;
@@ -29,12 +30,18 @@ export default function Settings({ onClose }: Props) {
   const [coreProgress, setCoreProgress] = useState(0);
   const [coreProgressMsg, setCoreProgressMsg] = useState<string>('');
 
-  // Sync autoStart and GetCoreVersion on open
+  // Browser Kill-Switch States
+  const [detectedBrowsers, setDetectedBrowsers] = useState<BrowserItem[]>([]);
+
+  // Sync autoStart, GetCoreVersion and GetDetectedBrowsers on open
   useEffect(() => {
     GetAutoStart().then((v: any) => {
       if (v !== settings.autoStart) update('autoStart', v);
     });
     GetCoreVersion().then((v: any) => setCoreVer(v || 'Не установлен'));
+    GetDetectedBrowsers().then((b: any) => {
+      if (Array.isArray(b)) setDetectedBrowsers(b);
+    }).catch(err => console.error('Failed to get detected browsers:', err));
 
     const w = window as any;
     if (w.runtime?.EventsOn) {
@@ -101,6 +108,27 @@ export default function Settings({ onClose }: Props) {
       settingsStore.save(next);
       return next;
     });
+  };
+
+  const handleAddCustomBrowser = async () => {
+    try {
+      const selected = await SelectCustomBrowserExe();
+      if (!selected) return;
+      const current = settings.customBrowsers || [];
+      if (!current.includes(selected)) {
+        const next = [...current, selected];
+        update('customBrowsers', next);
+        syncKillSwitchConfig({ ...settings, customBrowsers: next }, detectedBrowsers);
+      }
+    } catch (e: any) {
+      console.error('Error selecting browser exe:', e);
+    }
+  };
+
+  const getExeBasename = (p: string) => {
+    if (!p) return '';
+    const parts = p.split(/[/\\]/);
+    return parts[parts.length - 1] || p;
   };
 
   const handleClose = () => {
@@ -175,6 +203,28 @@ export default function Settings({ onClose }: Props) {
         .st-nat-val { color: var(--accent); font-weight: 700; margin-bottom: 2px; }
         .st-nat-sub { color: var(--text-3); font-size: 10px; }
         .st-nat-btn { width: 100%; margin-top: 8px; padding: 6px 12px; background: var(--button); border: 1px solid var(--border); border-radius: var(--border-radius); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .st-ks-box { margin-top: 12px; padding: 12px; background: var(--seg-bg); border-radius: var(--border-radius); border: 1px solid var(--border); font-size: 12px; }
+        .st-ks-header { display: flex; align-items: center; justify-content: space-between; }
+        .st-ks-title { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); font-size: 13px; }
+        .st-ks-desc { font-size: 11px; color: var(--text-3); line-height: 1.4; margin-top: 4px; }
+        .st-ks-content { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+        .st-ks-mode-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 12px; }
+        .st-ks-sublabel { color: var(--text-2); font-weight: 500; }
+        .st-ks-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .st-ks-add-btn { display: flex; align-items: center; gap: 4px; background: var(--button); border: 1px solid var(--border); border-radius: calc(var(--border-radius) - 4px); padding: 3px 8px; font-size: 11px; font-weight: 600; color: var(--text); cursor: pointer; transition: background 0.15s; }
+        .st-ks-add-btn:hover { background: var(--button-hover); }
+        .st-ks-list { display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto; padding-right: 2px; }
+        .st-ks-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: var(--popup-bg); border-radius: calc(var(--border-radius) - 4px); border: 1px solid var(--border); cursor: pointer; transition: border-color 0.15s; }
+        .st-ks-item:hover { border-color: var(--accent); }
+        .st-ks-item--custom { justify-content: space-between; cursor: default; }
+        .st-ks-item-label { display: flex; align-items: center; gap: 10px; flex: 1; cursor: pointer; overflow: hidden; }
+        .st-ks-browser-info { display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+        .st-ks-browser-name { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .st-ks-browser-path { font-size: 10px; color: var(--text-3); font-family: var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .st-ks-del-btn { background: none; border: none; color: var(--text-3); cursor: pointer; padding: 4px; border-radius: 4px; transition: color 0.15s; flex-shrink: 0; }
+        .st-ks-del-btn:hover { color: #ef4444; }
+        .st-checkbox { accent-color: var(--toggle-on); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+        .st-ks-empty { font-size: 11px; color: var(--text-3); text-align: center; padding: 8px; }
       `}</style>
       <div className="st-overlay" onClick={handleClose}>
         <div className="st-modal" onClick={e => e.stopPropagation()}>
@@ -234,6 +284,140 @@ export default function Settings({ onClose }: Props) {
           <div className="st-row">
             <span>Автопроверка обновлений ядра</span>
             <button className={`st-toggle st-toggle--${settings.autoUpdateCore !== false ? 'on' : 'off'}`} onClick={() => update('autoUpdateCore', settings.autoUpdateCore === false)} />
+          </div>
+
+          <div className="st-ks-box">
+            <div className="st-ks-header">
+              <div className="st-ks-title">
+                <IconShield size={16} color={settings.browserKillSwitch ? '#2ed573' : 'inherit'} />
+                <span>Kill-Switch для браузеров</span>
+              </div>
+              <button
+                className={`st-toggle st-toggle--${settings.browserKillSwitch ? 'on' : 'off'}`}
+                onClick={() => {
+                  const next = !settings.browserKillSwitch;
+                  update('browserKillSwitch', next);
+                  syncKillSwitchConfig({ ...settings, browserKillSwitch: next }, detectedBrowsers);
+                }}
+              />
+            </div>
+            <div className="st-ks-desc">
+              Защита от утечки cookie и реального IP при обрыве или отключении туннеля.
+            </div>
+
+            {settings.browserKillSwitch && (
+              <div className="st-ks-content">
+                <div className="st-ks-mode-row">
+                  <span className="st-ks-sublabel">Режим блокировки:</span>
+                  <div className="st-seg">
+                    <button
+                      className={`st-seg-btn${settings.killSwitchMode !== 'strict' ? ' st-seg-btn--active' : ''}`}
+                      onClick={() => {
+                        update('killSwitchMode', 'reconnect');
+                        syncKillSwitchConfig({ ...settings, killSwitchMode: 'reconnect' }, detectedBrowsers);
+                      }}
+                      title="Блокировать только при сбоях и обрыве (при ручном отключении разблокировать)"
+                    >
+                      При сбое
+                    </button>
+                    <button
+                      className={`st-seg-btn${settings.killSwitchMode === 'strict' ? ' st-seg-btn--active' : ''}`}
+                      onClick={() => {
+                        update('killSwitchMode', 'strict');
+                        syncKillSwitchConfig({ ...settings, killSwitchMode: 'strict' }, detectedBrowsers);
+                      }}
+                      title="Блокировать всегда, пока VPN выключен"
+                    >
+                      Строгий
+                    </button>
+                  </div>
+                </div>
+
+                <div className="st-ks-list-header">
+                  <span>Защищаемые браузеры</span>
+                  <button className="st-ks-add-btn" onClick={handleAddCustomBrowser} title="Добавить файл браузера .exe">
+                    <IconPlus size={13} /> Добавить .exe
+                  </button>
+                </div>
+
+                <div className="st-ks-list">
+                  {detectedBrowsers.length === 0 && (settings.customBrowsers || []).length === 0 && (
+                    <div className="st-ks-empty">Браузеры не найдены автоматически. Добавьте вручную через .exe</div>
+                  )}
+
+                  {detectedBrowsers.map(b => {
+                    const isChecked = !(settings.disabledBrowsers || []).includes(b.id) && !(settings.disabledBrowsers || []).includes(b.exePath);
+                    return (
+                      <label key={b.id || b.exePath} className="st-ks-item">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={e => {
+                            const checked = e.target.checked;
+                            let disabled = [...(settings.disabledBrowsers || [])];
+                            if (checked) {
+                              disabled = disabled.filter(id => id !== b.id && id !== b.exePath);
+                            } else {
+                              if (!disabled.includes(b.id)) disabled.push(b.id);
+                            }
+                            update('disabledBrowsers', disabled);
+                            syncKillSwitchConfig({ ...settings, disabledBrowsers: disabled }, detectedBrowsers);
+                          }}
+                          className="st-checkbox"
+                        />
+                        <div className="st-ks-browser-info">
+                          <div className="st-ks-browser-name">{b.name}</div>
+                          <div className="st-ks-browser-path" title={b.exePath}>{getExeBasename(b.exePath)}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+
+                  {(settings.customBrowsers || []).map(path => {
+                    const isChecked = !(settings.disabledBrowsers || []).includes(path);
+                    return (
+                      <div key={path} className="st-ks-item st-ks-item--custom">
+                        <label className="st-ks-item-label">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={e => {
+                              const checked = e.target.checked;
+                              let disabled = [...(settings.disabledBrowsers || [])];
+                              if (checked) {
+                                disabled = disabled.filter(id => id !== path);
+                              } else {
+                                if (!disabled.includes(path)) disabled.push(path);
+                              }
+                              update('disabledBrowsers', disabled);
+                              syncKillSwitchConfig({ ...settings, disabledBrowsers: disabled }, detectedBrowsers);
+                            }}
+                            className="st-checkbox"
+                          />
+                          <div className="st-ks-browser-info">
+                            <div className="st-ks-browser-name">{getExeBasename(path)}</div>
+                            <div className="st-ks-browser-path" title={path}>{path}</div>
+                          </div>
+                        </label>
+                        <button
+                          className="st-ks-del-btn"
+                          onClick={() => {
+                            const next = (settings.customBrowsers || []).filter(p => p !== path);
+                            const nextDisabled = (settings.disabledBrowsers || []).filter(p => p !== path);
+                            update('customBrowsers', next);
+                            update('disabledBrowsers', nextDisabled);
+                            syncKillSwitchConfig({ ...settings, customBrowsers: next, disabledBrowsers: nextDisabled }, detectedBrowsers);
+                          }}
+                          title="Удалить из списка"
+                        >
+                          <IconTrash size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="st-nat-box" style={{ marginTop: 12 }}>

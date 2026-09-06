@@ -12,9 +12,10 @@ import { settingsStore } from '../lib/store';
 import { toastStore } from '../lib/stores/toastStore';
 import { logStore } from '../lib/stores/logStore';
 import { wdttLinkStore } from '../lib/utils/wdttLink';
-import { SaveProfile } from '../../wailsjs/go/backend/App';
+import { SaveProfile, GetDetectedBrowsers } from '../../wailsjs/go/backend/App';
 import type { Server, TunnelState } from '../lib/types';
 import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles, DeleteProfile } from '../../wailsjs/go/backend/App';
+import { getActiveProtectedBrowsers } from '../lib/killswitch';
 import { ServerIcon, SERVER_ICONS } from '../components/ServerIcon';
 import { formatBytes, formatSpeed, pingColor } from '../lib/utils/format';
 
@@ -235,14 +236,29 @@ export default function Connect() {
     logStore.clear();
     logStore.push('INFO', `Подключение к профилю: ${cur.name}`);
     try {
+      const st = settingsStore.get();
       const workers = cur.power || 10;
-      const bypassRu = settingsStore.get().bypassRu;
-      const mtu = Number(settingsStore.get().mtu) || 1300;
+      const bypassRu = st.bypassRu;
+      const mtu = Number(st.mtu) || 1300;
+
+      let protectedBrowsers: string[] = [];
+      if (st.browserKillSwitch) {
+        try {
+          const detected = await GetDetectedBrowsers();
+          protectedBrowsers = getActiveProtectedBrowsers(detected || [], st.disabledBrowsers || [], st.customBrowsers || []);
+        } catch (e) {
+          console.error('Failed to get detected browsers for connect:', e);
+        }
+      }
+
       await WailsConnect({
         profile: cur.name,
         workers,
         mtu,
         bypassRu,
+        browserKillSwitch: !!st.browserKillSwitch,
+        killSwitchMode: st.killSwitchMode || 'reconnect',
+        protectedBrowsers,
       });
       logStore.push('INFO', 'WailsConnect вернул OK (процесс запущен)');
     } catch (e: any) {

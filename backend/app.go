@@ -185,3 +185,27 @@ func (a *App) SelectAndReplaceCore() (string, error) {
 	}
 	return newVer, err
 }
+
+func (a *App) GetDetectedBrowsers() []BrowserInfo {
+	return DetectInstalledBrowsers()
+}
+
+func (a *App) SetKillSwitchConfig(enabled bool, mode string, browsers []string) {
+	if a.orch != nil {
+		a.orch.SetKillSwitchConfig(KillSwitchConfig{
+			Enabled:  enabled,
+			Mode:     mode,
+			Browsers: browsers,
+		})
+	}
+}
+
+func (a *App) SelectCustomBrowserExe() (string, error) {
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Выберите исполняемый файл браузера (*.exe)",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Исполняемые файлы (*.exe)", Pattern: "*.exe"},
+		},
+	})
+}
+

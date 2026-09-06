@@ -12,6 +12,7 @@ import type { LogLevel } from './lib/stores/logStore';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import { settingsStore } from './lib/store';
 import { SetTrayEnabled, CheckCoreUpdate } from '../wailsjs/go/backend/App';
+import { syncKillSwitchConfig } from './lib/killswitch';
 
 function useWdttPaste() {
   useEffect(() => {
@@ -63,6 +64,9 @@ export default function App() {
   useEffect(() => {
     const s = settingsStore.get();
     SetTrayEnabled(s.tray);
+    if (s.browserKillSwitch) {
+      syncKillSwitchConfig(s).catch(() => {});
+    }
     if (s.autoUpdateCore !== false) {
       CheckCoreUpdate().then((info: any) => {
         if (info?.hasUpdate) {

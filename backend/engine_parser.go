@@ -172,6 +172,9 @@ func (e *FreeturnEngine) parseLogs(r io.Reader, wgConfig string, bypassRu bool, 
 						if e.onTray != nil {
 							e.onTray(true, 0, 0, 0)
 						}
+						if e.onConnected != nil {
+							e.onConnected()
+						}
 						e.startStatsLoop()
 
 						// Диагностика типа NAT через STUN после успешного подключения

@@ -21,6 +21,8 @@ type FreeturnEngine struct {
 	wg     sync.WaitGroup
 
 	onTray            func(connected bool, rx, tx int64, workers int32)
+	onBeforeTeardown  func(stopped bool)
+	onConnected       func()
 	onUnexpectedExit  func(err error)
 	userStopped       bool
 	muIPs             sync.Mutex
@@ -33,10 +35,18 @@ type FreeturnEngine struct {
 	exitChan          chan struct{}
 }
 
-func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int32), onUnexpectedExit func(err error)) *FreeturnEngine {
+func NewFreeturnEngine(
+	ctx context.Context,
+	onTray func(bool, int64, int64, int32),
+	onBeforeTeardown func(stopped bool),
+	onConnected func(),
+	onUnexpectedExit func(err error),
+) *FreeturnEngine {
 	return &FreeturnEngine{
 		appCtx:           ctx,
 		onTray:           onTray,
+		onBeforeTeardown: onBeforeTeardown,
+		onConnected:      onConnected,
 		onUnexpectedExit: onUnexpectedExit,
 		turnIPs:          make(map[string]bool),
 	}
@@ -169,6 +179,9 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		e.stopStatsLoopLocked()
 		e.mu.Unlock()
 		e.wg.Wait()
+		if e.onBeforeTeardown != nil {
+			e.onBeforeTeardown(stopped)
+		}
 		teardownWG()
 
 		runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))

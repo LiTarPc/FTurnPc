@@ -155,12 +155,22 @@ type ProfileData struct {
 	StreamsPerCred int    `json:"streamsPerCred,omitempty"`
 }
 
+// KillSwitchConfig — настройки Kill-Switch для браузеров.
+type KillSwitchConfig struct {
+	Enabled  bool     `json:"enabled"`
+	Mode     string   `json:"mode"`     // "reconnect" | "strict"
+	Browsers []string `json:"browsers"` // пути к исполняемым файлам
+}
+
 // ConnectParams — runtime параметры от UI.
 type ConnectParams struct {
-	Profile  string `json:"profile"`
-	Workers  int    `json:"workers,omitempty"`
-	MTU      int    `json:"mtu,omitempty"`
-	BypassRu bool   `json:"bypassRu,omitempty"`
+	Profile           string   `json:"profile"`
+	Workers           int      `json:"workers,omitempty"`
+	MTU               int      `json:"mtu,omitempty"`
+	BypassRu          bool     `json:"bypassRu,omitempty"`
+	BrowserKillSwitch bool     `json:"browserKillSwitch,omitempty"`
+	KillSwitchMode    string   `json:"killSwitchMode,omitempty"`
+	ProtectedBrowsers []string `json:"protectedBrowsers,omitempty"`
 }
 
 func loadProfile(name string) (*ProfileData, error) {
@@ -188,6 +198,9 @@ type Orchestrator struct {
 	lw            *wailsLogWriter
 	wakeReconnect chan struct{}
 	lastParams    ConnectParams
+	ksMu          sync.Mutex
+	ksConfig      KillSwitchConfig
+	ksActive      bool
 }
 
 func NewOrchestrator(ctx context.Context, onTray func(bool, int64, int64, int32)) *Orchestrator {
@@ -215,6 +228,14 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 	o.userStopped = false
 	o.lastParams = p
 	o.mu.Unlock()
+
+	if p.BrowserKillSwitch {
+		o.SetKillSwitchConfig(KillSwitchConfig{
+			Enabled:  p.BrowserKillSwitch,
+			Mode:     p.KillSwitchMode,
+			Browsers: p.ProtectedBrowsers,
+		})
+	}
 
 	if err := o.startEngineOnly(p); err != nil {
 		return err
@@ -250,9 +271,19 @@ func (o *Orchestrator) startEngineOnly(p ConnectParams) error {
 	o.lw.start()
 	log.SetOutput(o.lw)
 
-	engine := NewFreeturnEngine(o.appCtx, o.onTray, func(err error) {
-		o.triggerReconnect()
-	})
+	engine := NewFreeturnEngine(
+		o.appCtx,
+		o.onTray,
+		func(stopped bool) {
+			o.handleBeforeTeardown(stopped)
+		},
+		func() {
+			o.handleConnected()
+		},
+		func(err error) {
+			o.triggerReconnect()
+		},
+	)
 	err = engine.Start(p, prof)
 	if err != nil {
 		runtime.EventsEmit(o.appCtx, "log", "ERROR", fmt.Sprintf("Ошибка запуска FreeTurn: %v", err))
@@ -293,6 +324,113 @@ func (o *Orchestrator) Stop() {
 	}
 	
 	o.stopLogWriter()
+
+	o.ksMu.Lock()
+	cfg := o.ksConfig
+	o.ksMu.Unlock()
+
+	if cfg.Enabled && cfg.Mode == "strict" && len(cfg.Browsers) > 0 {
+		_ = ApplyBrowserKillSwitch(cfg.Browsers)
+		o.ksMu.Lock()
+		o.ksActive = true
+		o.ksMu.Unlock()
+		runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("[Kill-Switch] Строгий режим: браузеры заблокированы (VPN отключён, %d шт.)", len(cfg.Browsers)))
+	} else {
+		_ = RemoveBrowserKillSwitch()
+		o.ksMu.Lock()
+		o.ksActive = false
+		o.ksMu.Unlock()
+	}
+}
+
+func (o *Orchestrator) handleBeforeTeardown(stopped bool) {
+	o.ksMu.Lock()
+	cfg := o.ksConfig
+	o.ksMu.Unlock()
+
+	if !cfg.Enabled || len(cfg.Browsers) == 0 {
+		return
+	}
+
+	if !stopped {
+		// Неожиданный разрыв связи или сбой ядра — мгновенно блокируем браузеры ДО сброса адаптера и маршрутов
+		runtime.EventsEmit(o.appCtx, "log", "WARN", fmt.Sprintf("[Kill-Switch] Разрыв туннеля! Защита включена: блокировка %d браузеров от утечки IP...", len(cfg.Browsers)))
+		_ = ApplyBrowserKillSwitch(cfg.Browsers)
+		o.ksMu.Lock()
+		o.ksActive = true
+		o.ksMu.Unlock()
+	} else {
+		if cfg.Mode == "strict" {
+			runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("[Kill-Switch] Строгий режим: блокировка %d браузеров остаётся активной", len(cfg.Browsers)))
+			_ = ApplyBrowserKillSwitch(cfg.Browsers)
+			o.ksMu.Lock()
+			o.ksActive = true
+			o.ksMu.Unlock()
+		} else {
+			_ = RemoveBrowserKillSwitch()
+			o.ksMu.Lock()
+			o.ksActive = false
+			o.ksMu.Unlock()
+		}
+	}
+}
+
+func (o *Orchestrator) handleConnected() {
+	o.ksMu.Lock()
+	cfg := o.ksConfig
+	wasActive := o.ksActive
+	o.ksActive = false
+	o.ksMu.Unlock()
+
+	if wasActive || cfg.Enabled {
+		_ = RemoveBrowserKillSwitch()
+		runtime.EventsEmit(o.appCtx, "log", "INFO", "[Kill-Switch] Туннель активен. Блокировка браузеров снята ✓")
+	}
+}
+
+func (o *Orchestrator) SetKillSwitchConfig(cfg KillSwitchConfig) {
+	if cfg.Enabled && len(cfg.Browsers) == 0 {
+		for _, b := range DetectInstalledBrowsers() {
+			cfg.Browsers = append(cfg.Browsers, b.ExePath)
+		}
+	}
+
+	o.ksMu.Lock()
+	o.ksConfig = cfg
+	active := o.ksActive
+	isRunning := o.engine != nil && o.engine.IsRunning()
+	o.ksMu.Unlock()
+
+	if !cfg.Enabled {
+		if active {
+			_ = RemoveBrowserKillSwitch()
+			o.ksMu.Lock()
+			o.ksActive = false
+			o.ksMu.Unlock()
+			runtime.EventsEmit(o.appCtx, "log", "INFO", "[Kill-Switch] Функция отключена. Браузеры разблокированы.")
+		}
+		return
+	}
+
+	// Строгий режим при выключенном VPN: немедленно блокируем браузеры
+	if cfg.Mode == "strict" && !isRunning && len(cfg.Browsers) > 0 {
+		_ = ApplyBrowserKillSwitch(cfg.Browsers)
+		o.ksMu.Lock()
+		o.ksActive = true
+		o.ksMu.Unlock()
+		runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("[Kill-Switch] Строгий режим активен: заблокировано %d браузеров (VPN выключен)", len(cfg.Browsers)))
+	} else if cfg.Mode != "strict" && !isRunning && active {
+		_ = RemoveBrowserKillSwitch()
+		o.ksMu.Lock()
+		o.ksActive = false
+		o.ksMu.Unlock()
+	}
+}
+
+func (o *Orchestrator) GetKillSwitchConfig() KillSwitchConfig {
+	o.ksMu.Lock()
+	defer o.ksMu.Unlock()
+	return o.ksConfig
 }
 
 func (o *Orchestrator) IsRunning() bool {

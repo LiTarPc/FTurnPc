@@ -72,4 +72,5 @@ func teardownDNSLeakProtection() {
 // CleanupNetworkLeftovers очищает зависшие правила NRPT и брандмауэра при старте приложения.
 func CleanupNetworkLeftovers() {
 	teardownDNSLeakProtection()
+	CleanupAllKillSwitchRules()
 }

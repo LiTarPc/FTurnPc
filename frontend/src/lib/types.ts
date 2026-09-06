@@ -29,6 +29,10 @@ export interface AppSettings {
   useGlobalHashes: boolean;
   bypassRu: boolean;
   autoUpdateCore: boolean;
+  browserKillSwitch: boolean;
+  killSwitchMode: 'reconnect' | 'strict';
+  disabledBrowsers: string[];
+  customBrowsers: string[];
 }
 
 export type TunnelState = 'idle' | 'connecting' | 'connected' | 'disconnecting';
@@ -44,4 +48,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   useGlobalHashes: false,
   bypassRu: false,
   autoUpdateCore: true,
+  browserKillSwitch: false,
+  killSwitchMode: 'reconnect',
+  disabledBrowsers: [],
+  customBrowsers: [],
 };
