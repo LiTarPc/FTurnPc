@@ -166,4 +166,4 @@ wails build -platform linux/amd64 -tags webkit2_41 -o FTrunPc
 
 ## Лицензия
 Когда то давно в древние времена(v1.2) ui был взят у **https://github.com/luminescq/PWDTT**
-Этот проект распространяется под лицензией GNU General Public License v3.0.
+*Этот проект распространяется под лицензией GNU General Public License v3.0.
