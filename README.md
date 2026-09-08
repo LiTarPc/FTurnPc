@@ -165,6 +165,7 @@ wails build -platform linux/amd64 -tags webkit2_41 -o FTrunPc
 > Приложение является техническим инструментом для защищённого туннелирования собственного трафика через ваш личный TURN-сервер. Пожалуйста, используйте его исключительно в законных целях.
 
 ## 🤝 Благодарности
+* Создатель ядра Freeturn <a href="https://github.com/samosvalishe">samosvalishe</a> 
 * Код для ui был взят у **https://github.com/luminescq/PWDTT**
 ## Лицензия 
 * Этот проект распространяется под лицензией GNU General Public License v3.0.
