@@ -198,7 +198,7 @@ func CheckCoreUpdate() (CoreUpdateInfo, error) {
 		} else if goarch == "arm64" {
 			matchArch = strings.Contains(name, "arm64") || strings.Contains(name, "aarch64")
 		} else if goarch == "386" {
-			matchArch = strings.Contains(name, "386") || strings.Contains(name, "x86") || strings.Contains(name, "32")
+			matchArch = strings.Contains(name, "386") || strings.Contains(name, "32") || (strings.Contains(name, "x86") && !strings.Contains(name, "x86_64"))
 		}
 
 		if isClient && matchOS && matchArch {
@@ -284,6 +284,10 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 				targetVer = subParts[0]
 			}
 		}
+	}
+
+	if !strings.HasPrefix(downloadURL, "https://github.com/") && !strings.HasPrefix(downloadURL, "https://objects.githubusercontent.com/") {
+		return fmt.Errorf("загрузка разрешена только с github.com, URL: %s", downloadURL)
 	}
 
 	log.Printf("[CoreUpdate] Загрузка обновления ядра с %s...", downloadURL)
@@ -397,14 +401,23 @@ func UpdateCore(ctx context.Context, downloadURL string, beforeReplaceFn func())
 		if err != nil {
 			return fmt.Errorf("ошибка открытия файла %s в zip: %w", candidate.Name, err)
 		}
-		extracted, err := io.ReadAll(rc)
+		extracted, err := io.ReadAll(io.LimitReader(rc, 50*1024*1024)) // 50MB limit
 		rc.Close()
-		if err != nil {
+		if err != nil && err != io.EOF {
 			return fmt.Errorf("ошибка распаковки %s: %w", candidate.Name, err)
 		}
 		exeBytes = extracted
 	} else {
 		exeBytes = bodyBytes.Bytes()
+	}
+
+	if len(exeBytes) < 1024 {
+		return fmt.Errorf("скачанный файл слишком мал")
+	}
+	if goruntime.GOOS == "windows" && !bytes.HasPrefix(exeBytes, []byte("MZ")) {
+		return fmt.Errorf("скачанный файл не является исполняемым (отсутствует MZ-заголовок)")
+	} else if goruntime.GOOS == "linux" && !bytes.HasPrefix(exeBytes, []byte("\x7fELF")) {
+		return fmt.Errorf("скачанный файл не является исполняемым (отсутствует ELF-заголовок)")
 	}
 
 	// Остановка активного процесса перед заменой бинарника на диске
@@ -488,6 +501,11 @@ func SelectAndReplaceCore(ctx context.Context, beforeReplaceFn func()) (string, 
 
 	if len(data) < 1024 {
 		return "", fmt.Errorf("выбранный файл слишком мал или повреждён (%d байт)", len(data))
+	}
+	if goruntime.GOOS == "windows" && !bytes.HasPrefix(data, []byte("MZ")) {
+		return "", fmt.Errorf("выбранный файл не является исполняемым (отсутствует MZ-заголовок)")
+	} else if goruntime.GOOS == "linux" && !bytes.HasPrefix(data, []byte("\x7fELF")) {
+		return "", fmt.Errorf("выбранный файл не является исполняемым (отсутствует ELF-заголовок)")
 	}
 
 	// Остановка активного процесса перед заменой бинарника

@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -47,11 +48,13 @@ func (a *App) updateTray(connected bool, rx, tx int64, workers int32) {
 	setTrayStatus(connected, rx, tx, workers)
 }
 
-// OnBeforeClose hides the window instead of quitting when tray is enabled.
 func (a *App) OnBeforeClose(ctx context.Context) bool {
 	if a.trayEnabled.Load() && !a.quitting.Load() {
 		runtime.WindowHide(ctx)
 		return true // prevent close
+	}
+	if a.orch.IsRunning() {
+		a.orch.Stop()
 	}
 	return false
 }
@@ -91,6 +94,9 @@ func (a *App) CheckVPN() []string {
 }
 
 func (a *App) SaveProfile(name string, p ProfileData) error {
+	if strings.ContainsAny(name, "\\/.") {
+		return fmt.Errorf("invalid profile name")
+	}
 	dir := filepath.Join(configDir(), "profiles")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -104,10 +110,16 @@ func (a *App) SaveProfile(name string, p ProfileData) error {
 }
 
 func (a *App) GetProfile(name string) (*ProfileData, error) {
+	if strings.ContainsAny(name, "\\/.") {
+		return nil, fmt.Errorf("invalid profile name")
+	}
 	return loadProfile(name)
 }
 
 func (a *App) DeleteProfile(name string) error {
+	if strings.ContainsAny(name, "\\/.") {
+		return fmt.Errorf("invalid profile name")
+	}
 	return os.Remove(profilePath(name))
 }
 
@@ -155,7 +167,9 @@ func (a *App) UpdateCore(downloadURL string) error {
 	if err == nil && wasRunning {
 		go func() {
 			time.Sleep(1 * time.Second)
-			_ = a.orch.Start(lastParams)
+			if !a.orch.IsRunning() {
+				_ = a.orch.Start(lastParams)
+			}
 		}()
 	}
 	return err
@@ -180,7 +194,9 @@ func (a *App) SelectAndReplaceCore() (string, error) {
 	if err == nil && wasRunning {
 		go func() {
 			time.Sleep(1 * time.Second)
-			_ = a.orch.Start(lastParams)
+			if !a.orch.IsRunning() {
+				_ = a.orch.Start(lastParams)
+			}
 		}()
 	}
 	return newVer, err

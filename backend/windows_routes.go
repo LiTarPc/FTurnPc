@@ -44,37 +44,29 @@ func applyExcludeRoutes(turnIPs []string, bypassRu bool) {
 
 	ifIndex, _ := getGatewayInterfaceIndex(gw)
 
+	log.Printf("[WG] Adding %d exclude routes sequentially...", len(excludes))
+	start := time.Now()
+
+	var addedRoutes []string
+	for _, cidr := range excludes {
+		var err error
+		if ifIndex > 0 {
+			err = run("netsh", "interface", "ipv4", "add", "route", "prefix="+cidr, fmt.Sprintf("interface=%d", ifIndex), "nexthop="+gw, "metric=5", "store=active")
+		} else {
+			err = run("netsh", "interface", "ipv4", "add", "route", "prefix="+cidr, "nexthop="+gw, "metric=5", "store=active")
+		}
+		if err == nil {
+			addedRoutes = append(addedRoutes, cidr)
+		}
+	}
+
 	activeRoutesMu.Lock()
 	activeGatewayIP = gw
 	activeIfaceIndex = ifIndex
-	activeExcludeRoutes = excludes
+	activeExcludeRoutes = addedRoutes
 	activeRoutesMu.Unlock()
 
-	log.Printf("[WG] Adding %d exclude routes via netsh batch...", len(excludes))
-	start := time.Now()
-
-	tmpFile, err := os.CreateTemp("", "ft_routes_add_*.txt")
-	if err == nil {
-		defer os.Remove(tmpFile.Name())
-		var content strings.Builder
-		for _, cidr := range excludes {
-			if ifIndex > 0 {
-				content.WriteString(fmt.Sprintf("interface ipv4 add route prefix=%s interface=%d nexthop=%s metric=5 store=active\n", cidr, ifIndex, gw))
-			} else {
-				content.WriteString(fmt.Sprintf("interface ipv4 add route prefix=%s nexthop=%s metric=5 store=active\n", cidr, gw))
-			}
-		}
-		_ = os.WriteFile(tmpFile.Name(), []byte(content.String()), 0644)
-		_ = tmpFile.Close()
-
-		if err := run("netsh", "-f", tmpFile.Name()); err != nil {
-			log.Printf("[WG] netsh add routes err: %v", err)
-		}
-	} else {
-		log.Printf("[WG] Failed to create temp file for routes: %v", err)
-	}
-
-	log.Printf("[WG] Added all exclude routes via netsh in %v", time.Since(start))
+	log.Printf("[WG] Added %d exclude routes in %v", len(addedRoutes), time.Since(start))
 }
 
 // deleteExcludeRoutes удаляет все ранее добавленные маршруты-исключения.

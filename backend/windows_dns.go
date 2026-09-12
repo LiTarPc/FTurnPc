@@ -5,9 +5,12 @@ package backend
 import (
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"time"
 )
+
+var smhnrChanged bool
 
 // applyDNSLeakProtection применяет комплексную защиту от утечек DNS (SMHNR, NRPT, брандмауэр Windows).
 // Все PowerShell операции сгруппированы в единый пакет с таймаутом 5 секунд для мгновенного выполнения.
@@ -32,20 +35,31 @@ func applyDNSLeakProtection(dnsServers []string, ifIndex int) {
 	_ = run("netsh", "interface", "ipv4", "set", "interface", wgIface, "metric=1")
 
 	// 3. Отключение Windows Smart Multi-Homed Name Resolution (SMHNR) в реестре
-	_ = run("reg", "add", "HKLM\\Software\\Policies\\Microsoft\\Windows NT\\DNSClient",
-		"/v", "DisableSmartNameResolution", "/t", "REG_DWORD", "/d", "1", "/f")
+	// Сначала проверяем, была ли политика уже установлена
+	out, err := runWithOutput("reg", "query", "HKLM\\Software\\Policies\\Microsoft\\Windows NT\\DNSClient", "/v", "DisableSmartNameResolution")
+	if err != nil || !strings.Contains(out, "DisableSmartNameResolution") {
+		smhnrChanged = true
+		_ = run("reg", "add", "HKLM\\Software\\Policies\\Microsoft\\Windows NT\\DNSClient",
+			"/v", "DisableSmartNameResolution", "/t", "REG_DWORD", "/d", "1", "/f")
+	}
 
 	// 4. Добавление NRPT-правила (Name Resolution Policy Table) для перенаправления всех DNS-запросов (.) в туннель
 	// и удаление устаревших правил блокировки порта 53 на физическом адаптере, чтобы не блокировать VK Auth
-	var quotedServers []string
+	var validServers []string
 	for _, s := range dnsServers {
-		quotedServers = append(quotedServers, fmt.Sprintf("'%s'", strings.TrimSpace(s)))
+		s = strings.TrimSpace(s)
+		if net.ParseIP(s) != nil {
+			validServers = append(validServers, fmt.Sprintf("'%s'", s))
+		}
+	}
+	if len(validServers) == 0 {
+		return
 	}
 
 	var psBatch strings.Builder
 	psBatch.WriteString("$ErrorActionPreference = 'SilentlyContinue'; ")
 	psBatch.WriteString("Remove-NetFirewallRule -DisplayName 'FTurn_Block_DNS_Leak_UDP','FTurn_Block_DNS_Leak_TCP'; ")
-	psBatch.WriteString(fmt.Sprintf("Add-DnsClientNrptRule -Namespace '.' -NameServers @(%s) -DisplayName 'FTurn_DNS_Rule'; ", strings.Join(quotedServers, ",")))
+	psBatch.WriteString(fmt.Sprintf("Add-DnsClientNrptRule -Namespace '.' -NameServers @(%s) -DisplayName 'FTurn_DNS_Rule'; ", strings.Join(validServers, ",")))
 
 	_ = runWithTimeout(15*time.Second, "powershell", "-NoProfile", "-NonInteractive", "-Command", psBatch.String())
 
@@ -62,8 +76,11 @@ func teardownDNSLeakProtection() {
 	_ = runWithTimeout(10*time.Second, "powershell", "-NoProfile", "-NonInteractive", "-Command", psBatch)
 
 	// 2. Восстановление Smart Name Resolution в реестре
-	_ = run("reg", "delete", "HKLM\\Software\\Policies\\Microsoft\\Windows NT\\DNSClient",
-		"/v", "DisableSmartNameResolution", "/f")
+	if smhnrChanged {
+		_ = run("reg", "delete", "HKLM\\Software\\Policies\\Microsoft\\Windows NT\\DNSClient",
+			"/v", "DisableSmartNameResolution", "/f")
+		smhnrChanged = false
+	}
 
 	// 3. Сброс DNS-кэша
 	_ = run("ipconfig", "/flushdns")

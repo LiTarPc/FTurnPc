@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ var wintunDLL []byte
 var (
 	activeDevice *device.Device
 	activeTun    tun.Device
+	wgMu         sync.Mutex
 )
 
 func InitWintun(dll []byte) { wintunDLL = dll }
@@ -68,7 +70,9 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 	if err != nil {
 		return fmt.Errorf("create TUN: %w", err)
 	}
+	wgMu.Lock()
 	activeTun = tunDev
+	wgMu.Unlock()
 
 	// Создание userspace WireGuard устройства
 	logger := &device.Logger{
@@ -76,7 +80,9 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 		Errorf:   func(format string, args ...interface{}) { log.Printf("[WG] "+format, args...) },
 	}
 	dev := device.NewDevice(tunDev, conn.NewDefaultBind(), logger)
+	wgMu.Lock()
 	activeDevice = dev
+	wgMu.Unlock()
 
 	if err := dev.IpcSetOperation(strings.NewReader(uapiConf(wgConf))); err != nil {
 		return fmt.Errorf("IpcSet: %w", err)
@@ -128,6 +134,11 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 		}
 	}
 
+	// Явное отключение/блокировка IPv6 (перенаправление в туннель)
+	if err := run("netsh", "interface", "ipv6", "add", "route", "::/0", wgIface, "metric=1"); err != nil {
+		log.Printf("[WG] IPv6 block route err: %v", err)
+	}
+
 	// Защита от утечек DNS (применяется асинхронно, не задерживая поднятие туннеля)
 	go applyDNSLeakProtection(dnsServers, ifIndex)
 
@@ -139,6 +150,7 @@ func teardownWG() {
 	teardownDNSLeakProtection()
 	deleteExcludeRoutes()
 
+	wgMu.Lock()
 	if activeDevice != nil {
 		activeDevice.Close()
 		activeDevice = nil
@@ -147,6 +159,7 @@ func teardownWG() {
 		activeTun.Close()
 		activeTun = nil
 	}
+	wgMu.Unlock()
 }
 
 // uapiConf преобразует wg-setconf конфиг в UAPI протокол для device.IpcSetOperation.
@@ -230,4 +243,14 @@ func runWithTimeout(timeout time.Duration, name string, args ...string) error {
 		return fmt.Errorf("%s %v: %w — %s", name, args, err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func runWithOutput(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("%s %v: %w — %s", name, args, err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
 }

@@ -60,7 +60,10 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.muStreams.Unlock()
 	e.statsStop = nil
 
-	peerIP, _, _ := strings.Cut(prof.PeerAddr, ":")
+	peerIP := prof.PeerAddr
+	if host, _, err := net.SplitHostPort(prof.PeerAddr); err == nil {
+		peerIP = host
+	}
 	peerIP = strings.TrimSpace(peerIP)
 	if peerIP == "localhost" {
 		peerIP = "127.0.0.1"
@@ -110,7 +113,11 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	args = append(args, "-streams-per-cred", fmt.Sprintf("%d", streams))
 
 	coreVer := GetCoreVersion()
-	if strings.HasPrefix(coreVer, "v1.") || strings.HasPrefix(coreVer, "v2.") || strings.Contains(coreVer, "1.") || strings.Contains(coreVer, "2.") || strings.HasPrefix(coreVer, "Бинарный") {
+	isLegacy := strings.HasPrefix(coreVer, "v1.") || strings.HasPrefix(coreVer, "v2.") || strings.HasPrefix(coreVer, "Бинарный")
+	if !strings.HasPrefix(coreVer, "v") && (strings.HasPrefix(coreVer, "1.") || strings.HasPrefix(coreVer, "2.")) {
+		isLegacy = true
+	}
+	if isLegacy {
 		args = append(args, "-mode", "udp")
 	}
 
@@ -144,7 +151,16 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		return fmt.Errorf("stderr pipe: %v", err)
 	}
 
-	runtime.EventsEmit(e.appCtx, "log", "DEBUG", fmt.Sprintf("Launching freeturn: %s %v", exePath, args))
+	safeArgs := make([]string, len(args))
+	copy(safeArgs, args)
+	for i, arg := range safeArgs {
+		if arg == "-obf-key" || arg == "-client-id" || arg == "-links" {
+			if i+1 < len(safeArgs) {
+				safeArgs[i+1] = "***"
+			}
+		}
+	}
+	runtime.EventsEmit(e.appCtx, "log", "DEBUG", fmt.Sprintf("Launching freeturn: %s %v", exePath, safeArgs))
 
 	if err := e.cmd.Start(); err != nil {
 		cancel()

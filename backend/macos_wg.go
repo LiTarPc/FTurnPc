@@ -46,7 +46,9 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 	}
 
 	mtu := 1300
-	if mtuStr != "" {
+	if customMTU > 0 {
+		mtu = customMTU
+	} else if mtuStr != "" {
 		fmt.Sscanf(mtuStr, "%d", &mtu)
 	}
 
@@ -108,6 +110,13 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 		for _, cidr := range GetVKExcludeCIDRs() {
 			if run("route", "add", "-net", cidr, gw) == nil {
 				routes = append(routes, "net:"+cidr)
+			}
+		}
+		if bypassRu {
+			for _, cidr := range loadGeoIPRuCIDRs() {
+				if run("route", "add", "-net", cidr, gw) == nil {
+					routes = append(routes, "net:"+cidr)
+				}
 			}
 		}
 	}
@@ -190,12 +199,18 @@ func isPasswordRequired(output []byte) bool {
 		strings.Contains(s, "try again")
 }
 
+func applescriptString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
 func runWithAuth(name string, args ...string) error {
 	cmdArgs := name
 	for _, a := range args {
 		cmdArgs += " " + shellEscape(a)
 	}
-	script := fmt.Sprintf(`do shell script "%s" with administrator privileges`, cmdArgs)
+	script := fmt.Sprintf(`do shell script "%s" with administrator privileges`, applescriptString(cmdArgs))
 	cmd := exec.Command("osascript", "-e", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -205,9 +220,7 @@ func runWithAuth(name string, args ...string) error {
 }
 
 func shellEscape(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return s
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func defaultGateway() string {

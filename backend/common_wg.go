@@ -35,7 +35,7 @@ func GetVKExcludeCIDRs() []string {
 var wgQuickOnlyFields = map[string]bool{
 	"address": true, "dns": true, "mtu": true,
 	"preup": true, "postup": true, "predown": true, "postdown": true,
-	"saveconfig": true,
+	"saveconfig": true, "table": true, "fwmark": true,
 }
 
 // parseWGConfig извлекает параметры Address, MTU, AllowedIPs, DNS-серверы и возвращает конфиг, совместимый с wg setconf.

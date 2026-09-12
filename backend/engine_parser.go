@@ -55,6 +55,7 @@ func (e *FreeturnEngine) addTurnIP(ip string) {
 func (e *FreeturnEngine) parseLogs(r io.Reader, wgConfig string, bypassRu bool, customMTU int) {
 	defer e.wg.Done()
 	scanner := bufio.NewScanner(r)
+	var lastErrTime time.Time
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -149,7 +150,9 @@ func (e *FreeturnEngine) parseLogs(r io.Reader, wgConfig string, bypassRu bool, 
 			e.mu.Unlock()
 
 			if shouldApply {
+				e.wg.Add(1)
 				go func() {
+					defer e.wg.Done()
 					e.muIPs.Lock()
 					ips := make([]string, 0, len(e.turnIPs))
 					for ip := range e.turnIPs {
@@ -190,8 +193,13 @@ func (e *FreeturnEngine) parseLogs(r io.Reader, wgConfig string, bypassRu bool, 
 		level := classifyLevel(line)
 		runtime.EventsEmit(e.appCtx, "log", level, line)
 
-		if strings.Contains(line, "fatal") || strings.Contains(line, "error") {
-			runtime.EventsEmit(e.appCtx, "error", line)
+		lowerLineForErr := strings.ToLower(line)
+		if strings.Contains(lowerLineForErr, "fatal") || strings.Contains(lowerLineForErr, "error") {
+			now := time.Now()
+			if now.Sub(lastErrTime) > 5*time.Second {
+				runtime.EventsEmit(e.appCtx, "error", line)
+				lastErrTime = now
+			}
 		}
 	}
 }

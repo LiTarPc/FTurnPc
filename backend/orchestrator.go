@@ -28,14 +28,30 @@ const maxLogBuf = 500
 
 type logEntry struct{ level, msg string }
 
-func newSessionLogFile(peerIP string) *os.File {
+func newSessionLogFile(profileName string) *os.File {
 	dir := filepath.Join(configDir(), "logs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil
 	}
+
+	// Simple log rotation: keep only the last 10 log files
+	if entries, err := os.ReadDir(dir); err == nil {
+		var logs []string
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".log") {
+				logs = append(logs, filepath.Join(dir, e.Name()))
+			}
+		}
+		if len(logs) >= 10 {
+			for _, l := range logs[:len(logs)-9] {
+				_ = os.Remove(l)
+			}
+		}
+	}
+
 	ts := time.Now().Format("2006-01-02_15-04-05")
-	name := ts + "_" + peerIP + ".log"
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	name := ts + "_" + sanitizeFilename(profileName) + ".log"
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil
 	}
@@ -136,8 +152,16 @@ func configDir() string {
 	return dir
 }
 
+func sanitizeFilename(name string) string {
+	name = filepath.Base(filepath.Clean(name))
+	if name == "." || name == "/" || name == "\\" {
+		return "default"
+	}
+	return name
+}
+
 func profilePath(name string) string {
-	return filepath.Join(configDir(), "profiles", name+".json")
+	return filepath.Join(configDir(), "profiles", sanitizeFilename(name)+".json")
 }
 
 // ProfileData — хранится в ~/.config/fturnpc/profiles/<name>.json
@@ -188,6 +212,8 @@ type Orchestrator struct {
 	lw            *wailsLogWriter
 	wakeReconnect chan struct{}
 	lastParams    ConnectParams
+	sessionCtx    context.Context
+	sessionCancel context.CancelFunc
 }
 
 func NewOrchestrator(ctx context.Context, onTray func(bool, int64, int64, int32)) *Orchestrator {
@@ -214,13 +240,19 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 	}
 	o.userStopped = false
 	o.lastParams = p
+	if o.sessionCancel != nil {
+		o.sessionCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	o.sessionCtx = ctx
+	o.sessionCancel = cancel
 	o.mu.Unlock()
 
 	if err := o.startEngineOnly(p); err != nil {
 		return err
 	}
 
-	go o.monitorNetwork(p)
+	go o.monitorNetwork(ctx, p)
 	return nil
 }
 
@@ -240,15 +272,17 @@ func (o *Orchestrator) startEngineOnly(p ConnectParams) error {
 	runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("Профиль загружен: peer=%s transport=%s obf=%s wg_len=%d", prof.PeerAddr, prof.Transport, prof.Obf, len(prof.WGConfig)))
 
 	// Перехватываем стандартный логгер
+	o.mu.Lock()
 	if _, already := log.Writer().(*wailsLogWriter); !already {
 		o.prevLogWriter = log.Writer()
 	}
 	if o.lw != nil {
-		o.stopLogWriter()
+		o.stopLogWriterLocked()
 	}
 	o.lw = &wailsLogWriter{ctx: o.appCtx, file: newSessionLogFile(p.Profile)}
 	o.lw.start()
 	log.SetOutput(o.lw)
+	o.mu.Unlock()
 
 	engine := NewFreeturnEngine(o.appCtx, o.onTray, func(err error) {
 		o.triggerReconnect()
@@ -261,21 +295,34 @@ func (o *Orchestrator) startEngineOnly(p ConnectParams) error {
 	}
 
 	o.mu.Lock()
+	if o.userStopped {
+		o.mu.Unlock()
+		engine.Stop()
+		o.stopLogWriter()
+		return fmt.Errorf("stopped by user")
+	}
 	o.engine = engine
 	o.mu.Unlock()
 	return nil
 }
 
 func (o *Orchestrator) stopLogWriter() {
-	if lw, ok := log.Writer().(*wailsLogWriter); ok {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.stopLogWriterLocked()
+}
+
+func (o *Orchestrator) stopLogWriterLocked() {
+	if o.lw != nil {
 		select {
-		case <-lw.stop:
+		case <-o.lw.stop:
 		default:
-			close(lw.stop)
+			close(o.lw.stop)
 		}
-		if lw.file != nil {
-			lw.file.Close()
+		if o.lw.file != nil {
+			o.lw.file.Close()
 		}
+		o.lw = nil
 	}
 	if o.prevLogWriter != nil {
 		log.SetOutput(o.prevLogWriter)
@@ -285,6 +332,9 @@ func (o *Orchestrator) stopLogWriter() {
 func (o *Orchestrator) Stop() {
 	o.mu.Lock()
 	o.userStopped = true
+	if o.sessionCancel != nil {
+		o.sessionCancel()
+	}
 	engine := o.engine
 	o.mu.Unlock()
 	
@@ -301,7 +351,7 @@ func (o *Orchestrator) IsRunning() bool {
 	return o.engine != nil && o.engine.IsRunning()
 }
 
-func (o *Orchestrator) monitorNetwork(p ConnectParams) {
+func (o *Orchestrator) monitorNetwork(ctx context.Context, p ConnectParams) {
 	o.reconnectMu.Lock()
 	if o.reconnecting {
 		o.reconnectMu.Unlock()
@@ -318,6 +368,8 @@ func (o *Orchestrator) monitorNetwork(p ConnectParams) {
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-time.After(3 * time.Second):
 		case <-o.wakeReconnect:
 		}
