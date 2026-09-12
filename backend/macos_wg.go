@@ -102,21 +102,55 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 	gw := defaultGateway()
 	activeGatewayIP = gw
 	if gw != "" {
+		// Получаем существующие маршруты для фильтрации
+		existingRoutes := make(map[string]bool)
+		if out, err := exec.Command("netstat", "-nr", "-f", "inet").Output(); err == nil {
+			for _, line := range strings.Split(string(out), "\n") {
+				fields := strings.Fields(line)
+				if len(fields) > 0 && fields[0] != "default" && fields[0] != "Destination" && fields[0] != "Internet:" {
+					existingRoutes[fields[0]] = true
+				}
+			}
+		}
+
+		var excludesHosts []string
+		var excludesNets []string
+
 		for _, ip := range turnIPs {
-			if run("route", "add", "-host", ip, gw) == nil {
-				routes = append(routes, "host:"+ip)
+			if !existingRoutes[ip] {
+				excludesHosts = append(excludesHosts, ip)
 			}
 		}
 		for _, cidr := range GetVKExcludeCIDRs() {
-			if run("route", "add", "-net", cidr, gw) == nil {
-				routes = append(routes, "net:"+cidr)
+			if !existingRoutes[cidr] {
+				excludesNets = append(excludesNets, cidr)
 			}
 		}
 		if bypassRu {
 			for _, cidr := range loadGeoIPRuCIDRs() {
-				if run("route", "add", "-net", cidr, gw) == nil {
+				if !existingRoutes[cidr] {
+					excludesNets = append(excludesNets, cidr)
+				}
+			}
+		}
+
+		if len(excludesHosts) > 0 || len(excludesNets) > 0 {
+			tmpFile, err := os.CreateTemp("", "ft_mac_routes_*.sh")
+			if err == nil {
+				defer os.Remove(tmpFile.Name())
+				var sb strings.Builder
+				for _, ip := range excludesHosts {
+					sb.WriteString(fmt.Sprintf("route add -host %s %s >/dev/null 2>&1\n", ip, gw))
+					routes = append(routes, "host:"+ip)
+				}
+				for _, cidr := range excludesNets {
+					sb.WriteString(fmt.Sprintf("route add -net %s %s >/dev/null 2>&1\n", cidr, gw))
 					routes = append(routes, "net:"+cidr)
 				}
+				_ = os.WriteFile(tmpFile.Name(), []byte(sb.String()), 0755)
+
+				log.Printf("[WG] Adding %d exclude routes on macOS via batch script...", len(excludesHosts)+len(excludesNets))
+				_ = run("sh", tmpFile.Name())
 			}
 		}
 	}
