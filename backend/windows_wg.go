@@ -40,8 +40,9 @@ func extractWintun() error {
 		return err
 	}
 	dst := filepath.Join(filepath.Dir(exe), "wintun.dll")
-	if _, err := os.Stat(dst); err == nil {
-		return nil // уже извлечён
+	info, err := os.Stat(dst)
+	if err == nil && info.Size() == int64(len(wintunDLL)) {
+		return nil // уже извлечён и размер совпадает
 	}
 	return os.WriteFile(dst, wintunDLL, 0644)
 }
