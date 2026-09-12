@@ -40,9 +40,64 @@ type MIB_IFROW struct {
 }
 
 var (
-	iphlpapi       = syscall.NewLazyDLL("iphlpapi.dll")
-	procGetIfEntry = iphlpapi.NewProc("GetIfEntry")
+	iphlpapi              = syscall.NewLazyDLL("iphlpapi.dll")
+	procGetIfEntry        = iphlpapi.NewProc("GetIfEntry")
+	procGetIpForwardTable = iphlpapi.NewProc("GetIpForwardTable")
 )
+
+// MIB_IPFORWARDROW описывает одну запись маршрута в IPv4.
+type MIB_IPFORWARDROW struct {
+	DwForwardDest      uint32
+	DwForwardMask      uint32
+	DwForwardPolicy    uint32
+	DwForwardNextHop   uint32
+	DwForwardIfIndex   uint32
+	DwForwardType      uint32
+	DwForwardProto     uint32
+	DwForwardAge       uint32
+	DwForwardNextHopAS uint32
+	DwForwardMetric1   uint32
+	DwForwardMetric2   uint32
+	DwForwardMetric3   uint32
+	DwForwardMetric4   uint32
+	DwForwardMetric5   uint32
+}
+
+// GetExistingRoutesFast получает все существующие IPv4-маршруты за миллисекунды через WinAPI.
+// Возвращает мапу, где ключи — префиксы назначения в формате CIDR ("10.0.0.0/8").
+func GetExistingRoutesFast() map[string]bool {
+	existing := make(map[string]bool)
+	var size uint32
+	procGetIpForwardTable.Call(0, uintptr(unsafe.Pointer(&size)), 0)
+	if size == 0 {
+		return existing
+	}
+
+	buf := make([]byte, size)
+	ret, _, _ := procGetIpForwardTable.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)), 0)
+	if ret != 0 {
+		return existing
+	}
+
+	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
+	for i := uint32(0); i < numEntries; i++ {
+		row := (*MIB_IPFORWARDROW)(unsafe.Pointer(&buf[4+i*uint32(unsafe.Sizeof(MIB_IPFORWARDROW{}))]))
+		
+		dest := row.DwForwardDest
+		mask := row.DwForwardMask
+		
+		ipStr := fmt.Sprintf("%d.%d.%d.%d", dest&0xff, (dest>>8)&0xff, (dest>>16)&0xff, (dest>>24)&0xff)
+		ip := net.ParseIP(ipStr)
+		maskIP := net.IPv4(byte(mask&0xff), byte((mask>>8)&0xff), byte((mask>>16)&0xff), byte((mask>>24)&0xff))
+		
+		if ip != nil {
+			prefixSize, _ := net.IPMask(maskIP.To4()).Size()
+			cidr := fmt.Sprintf("%s/%d", ip.String(), prefixSize)
+			existing[cidr] = true
+		}
+	}
+	return existing
+}
 
 // getInterfaceBytes считывает переданные и принятые байты через WinAPI GetIfEntry.
 func getInterfaceBytes(ifaceName string) (rx, tx int64, err error) {

@@ -44,16 +44,8 @@ func applyExcludeRoutes(turnIPs []string, bypassRu bool) {
 
 	ifIndex, _ := getGatewayInterfaceIndex(gw)
 
-	// Получаем текущие маршруты для фильтрации
-	existingRoutes := make(map[string]bool)
-	if out, err := runWithOutput("powershell", "-NoProfile", "-NonInteractive", "-Command", "Get-NetRoute -AddressFamily IPv4 | Select-Object -ExpandProperty DestinationPrefix"); err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			line = strings.TrimSpace(line)
-			if line != "" {
-				existingRoutes[line] = true
-			}
-		}
-	}
+	// Получаем текущие маршруты для фильтрации (быстро через WinAPI)
+	existingRoutes := GetExistingRoutesFast()
 
 	var toAdd []string
 	for _, cidr := range excludes {
