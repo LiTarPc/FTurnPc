@@ -47,7 +47,7 @@ func applyExcludeRoutes(turnIPs []string, bypassRu bool) {
 
 	// Получаем текущие маршруты для фильтрации
 	existingRoutes := make(map[string]bool)
-	if out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", "Get-NetRoute -AddressFamily IPv4 | Select-Object -ExpandProperty DestinationPrefix").Output(); err == nil {
+	if out, err := runWithOutput("powershell", "-NoProfile", "-NonInteractive", "-Command", "Get-NetRoute -AddressFamily IPv4 | Select-Object -ExpandProperty DestinationPrefix"); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			line = strings.TrimSpace(line)
 			if line != "" {
