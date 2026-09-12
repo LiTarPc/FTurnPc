@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -44,29 +45,55 @@ func applyExcludeRoutes(turnIPs []string, bypassRu bool) {
 
 	ifIndex, _ := getGatewayInterfaceIndex(gw)
 
-	log.Printf("[WG] Adding %d exclude routes sequentially...", len(excludes))
+	// Получаем текущие маршруты для фильтрации
+	existingRoutes := make(map[string]bool)
+	if out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", "Get-NetRoute -AddressFamily IPv4 | Select-Object -ExpandProperty DestinationPrefix").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				existingRoutes[line] = true
+			}
+		}
+	}
+
+	var toAdd []string
+	for _, cidr := range excludes {
+		if !existingRoutes[cidr] {
+			toAdd = append(toAdd, cidr)
+		}
+	}
+
+	log.Printf("[WG] Adding %d exclude routes via netsh batch...", len(toAdd))
 	start := time.Now()
 
-	var addedRoutes []string
-	for _, cidr := range excludes {
-		var err error
-		if ifIndex > 0 {
-			err = run("netsh", "interface", "ipv4", "add", "route", "prefix="+cidr, fmt.Sprintf("interface=%d", ifIndex), "nexthop="+gw, "metric=5", "store=active")
-		} else {
-			err = run("netsh", "interface", "ipv4", "add", "route", "prefix="+cidr, "nexthop="+gw, "metric=5", "store=active")
+	tmpFile, err := os.CreateTemp("", "ft_routes_add_*.txt")
+	if err == nil {
+		defer os.Remove(tmpFile.Name())
+		var content strings.Builder
+		for _, cidr := range toAdd {
+			if ifIndex > 0 {
+				content.WriteString(fmt.Sprintf("interface ipv4 add route prefix=%s interface=%d nexthop=%s metric=5 store=active\n", cidr, ifIndex, gw))
+			} else {
+				content.WriteString(fmt.Sprintf("interface ipv4 add route prefix=%s nexthop=%s metric=5 store=active\n", cidr, gw))
+			}
 		}
-		if err == nil {
-			addedRoutes = append(addedRoutes, cidr)
+		_ = os.WriteFile(tmpFile.Name(), []byte(content.String()), 0644)
+		_ = tmpFile.Close()
+
+		if err := run("netsh", "-f", tmpFile.Name()); err != nil {
+			log.Printf("[WG] netsh add routes err: %v", err)
 		}
+	} else {
+		log.Printf("[WG] Failed to create temp file for routes: %v", err)
 	}
 
 	activeRoutesMu.Lock()
 	activeGatewayIP = gw
 	activeIfaceIndex = ifIndex
-	activeExcludeRoutes = addedRoutes
+	activeExcludeRoutes = toAdd
 	activeRoutesMu.Unlock()
 
-	log.Printf("[WG] Added %d exclude routes in %v", len(addedRoutes), time.Since(start))
+	log.Printf("[WG] Added %d exclude routes in %v", len(toAdd), time.Since(start))
 }
 
 // deleteExcludeRoutes удаляет все ранее добавленные маршруты-исключения.

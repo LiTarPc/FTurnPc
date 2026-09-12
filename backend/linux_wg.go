@@ -94,16 +94,34 @@ func applyWGConfig(conf string, turnIPs []string, bypassRu bool, customMTU int) 
 			excludes = append(excludes, ruCIDRs...)
 		}
 
-		// Apply exclude routes sequentially to track successful additions
+		// Apply exclude routes via batch after checking existing
 		if len(excludes) > 0 {
 			start := time.Now()
-			log.Printf("[WG] Adding %d exclude routes on Linux sequentially...", len(excludes))
+			existingRoutes := make(map[string]bool)
+			if out, err := exec.Command("ip", "-4", "route", "show").Output(); err == nil {
+				for _, line := range strings.Split(string(out), "\n") {
+					fields := strings.Fields(line)
+					if len(fields) > 0 && fields[0] != "default" {
+						existingRoutes[fields[0]] = true
+					}
+				}
+			}
+
+			var batchCmds strings.Builder
 			for _, cidr := range excludes {
-				if run("ip", "route", "add", cidr, "via", gw) == nil {
+				if !existingRoutes[cidr] {
+					batchCmds.WriteString(fmt.Sprintf("route add %s via %s\n", cidr, gw))
 					routes = append(routes, cidr)
 				}
 			}
-			log.Printf("[WG] Added %d exclude routes in %v", len(routes), time.Since(start))
+
+			if batchCmds.Len() > 0 {
+				log.Printf("[WG] Adding %d exclude routes on Linux via batch...", len(routes))
+				if err := runBatchIPCommands(batchCmds.String()); err != nil {
+					log.Printf("[WG] Warning: batch route add error: %v", err)
+				}
+				log.Printf("[WG] Added exclude routes in %v", time.Since(start))
+			}
 		}
 	}
 
