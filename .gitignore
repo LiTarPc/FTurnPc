@@ -1,0 +1,28 @@
+# Build output
+build/bin/*
+!build/bin/geoip-ru.txt
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Wails generated bindings (regenerated on build)
+frontend/wailsjs/
+
+# Go build artifacts
+*.exe
+*.so
+*.dylib
+
+# Temp / IDE
+.directory
+.idea/
+.vscode/
+*.swp
+
+# golangci-lint
+.golangci/cache/
+
+# Scratch files
+scratch/
+pwdtt-desktop

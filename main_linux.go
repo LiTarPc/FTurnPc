@@ -1,0 +1,50 @@
+//go:build linux
+
+package main
+
+import (
+	"embed"
+
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
+
+	"fturnpc/backend"
+)
+
+//go:embed all:frontend/dist
+var assets embed.FS
+
+//go:embed assets/icons/icon.png
+var appIcon []byte
+
+//go:embed assets/icons/tree-icon.png
+var trayIcon []byte
+
+func main() {
+	app := backend.NewApp(trayIcon)
+
+	err := wails.Run(&options.App{
+		Title:     "FTurnPc",
+		Width:     430,
+		Height:    670,
+		MinWidth:  400,
+		MinHeight: 450,
+		Frameless: false,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 1},
+		OnStartup:        app.Startup,
+		OnBeforeClose:    app.OnBeforeClose,
+		Bind:             []interface{}{app},
+		Linux: &linux.Options{
+			ProgramName: "FTurnPc",
+			Icon:        appIcon,
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+}

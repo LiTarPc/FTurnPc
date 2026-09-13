@@ -1,0 +1,52 @@
+//go:build darwin
+
+package main
+
+import (
+	"embed"
+
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
+
+	"fturnpc/backend"
+)
+
+//go:embed all:frontend/dist
+var assets embed.FS
+
+//go:embed assets/icons/icon.png
+var appIcon []byte
+
+//go:embed assets/icons/tree-icon.png
+var trayIcon []byte
+
+func main() {
+	app := backend.NewApp(trayIcon)
+
+	err := wails.Run(&options.App{
+		Title:     "FTurnPc",
+		Width:     400,
+		Height:    500,
+		MinWidth:  420,
+		MinHeight: 450,
+		Frameless: false,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 1},
+		OnStartup:        app.Startup,
+		OnBeforeClose:    app.OnBeforeClose,
+		Bind:             []interface{}{app},
+		Mac: &mac.Options{
+			About: &mac.AboutInfo{
+				Title:   "FTurnPc",
+				Message: "VPN Client",
+			},
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+}

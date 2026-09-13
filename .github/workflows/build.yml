@@ -1,0 +1,76 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master, CobaltTheme]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master, CobaltTheme]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-windows:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libayatana-appindicator3-dev pkg-config gcc libgtk-3-dev webkit2gtk-4.1-dev wireguard-tools
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build Linux
+        run: wails build -platform linux/amd64 -tags webkit2_41 -o FTrunPc
+
+      - name: Build Windows
+        run: wails build -platform windows/amd64 -o FTrunPc.exe
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FTrunPc
+          path: build/bin/FTrunPc
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FTrunPc-windows-amd64
+          path: build/bin/FTrunPc.exe
+
+      - name: Create or Update GitHub Release (latest-dev)
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/CobaltTheme' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        with:
+          tag_name: latest-dev
+          name: "Latest Development Build"
+          draft: false
+          prerelease: true
+          files: |
+            build/bin/FTrunPc
+            build/bin/FTrunPc.exe
+          body: |
+            Автоматическая сборка последних коммитов из веток разработки.
+            
+            **Свежие файлы:**
+            - Linux: `FTrunPc`
+            - Windows: `FTrunPc.exe`
+            
+            *Обновлено: ${{ github.event.head_commit.message }}*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

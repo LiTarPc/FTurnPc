@@ -1,0 +1,61 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+    - unparam
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+  misspell:
+    locale: US
+
+issues:
+  exclude-dirs:
+    - frontend
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocritic
+        - unparam
+    - path: main_.*\.go
+      linters:
+        - unparam
+    - path: other_tray\.go
+      linters:
+        - unused
+    - path: macos_tray\.go
+      linters:
+        - unused
+    - path: linux_tray\.go
+      linters:
+        - gocritic
+    - path: backend/tray/
+      linters:
+        - gocritic
+        - goimports
+    - text: "hugeParam"
+      linters:
+        - gocritic
+    - text: "shadow"
+      linters:
+        - govet
