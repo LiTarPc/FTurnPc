@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 )
 
 const freeTurnLoopbackRoute = "127.0.0.0/8"
@@ -68,6 +69,20 @@ func HardenSingboxLoopbackConfig(data []byte) ([]byte, error) {
 			if wireGuardUsesFreeTurnLoopback(ep) {
 				ep["inet4_bind_address"] = freeTurnHost
 			}
+		}
+	}
+
+	// RU bypass is generated earlier by singbox_config.go. Normalize its domain
+	// suffixes and report exactly whether the binary GeoIP rule-set was found.
+	ruInfo, err := finalizeRUBypassMap(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("RU bypass finalize: %w", err)
+	}
+	if ruInfo.Enabled {
+		if ruInfo.GeoIP {
+			log.Printf("[SB] RU bypass: geoip + domains (%s)", ruInfo.GeoPath)
+		} else {
+			log.Printf("[SB] WARN: RU bypass: domains only; geoip-ru.srs not loaded")
 		}
 	}
 
