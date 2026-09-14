@@ -3,6 +3,7 @@ package backend
 import (
 	"encoding/json"
 	"reflect"
+	"regexp"
 	"testing"
 )
 
@@ -20,6 +21,7 @@ func TestNormalizeBypassApp(t *testing.T) {
 		{`   `, ``, false},
 		{`.`, ``, false},
 		{`..`, ``, false},
+		{"bad\nname.exe", ``, false},
 	}
 
 	for _, tt := range tests {
@@ -43,6 +45,29 @@ func TestNormalizeBypassApps_DeduplicatesCaseInsensitively(t *testing.T) {
 	want := []string{"steam.exe", "Discord.exe", "browser.exe"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalizeBypassApps() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBypassProcessPathRegex_MatchesBasenameCaseInsensitively(t *testing.T) {
+	expression := bypassProcessPathRegex("Steam.exe")
+	re, err := regexp.Compile(expression)
+	if err != nil {
+		t.Fatalf("regexp compile: %v", err)
+	}
+	for _, value := range []string{
+		"steam.exe",
+		"STEAM.EXE",
+		`C:\\Program Files (x86)\\Steam\\steam.exe`,
+		"C:/Games/Steam/STEAM.EXE",
+	} {
+		if !re.MatchString(value) {
+			t.Errorf("%q did not match %q", expression, value)
+		}
+	}
+	for _, value := range []string{"steamservice.exe", "notsteam.exe", `C:\\Steam\\steam.exe.old`} {
+		if re.MatchString(value) {
+			t.Errorf("%q unexpectedly matched %q", expression, value)
+		}
 	}
 }
 
@@ -82,13 +107,21 @@ func TestApplyProcessBypassApps_IsFirstRouteRule(t *testing.T) {
 	if first["action"] != "route" || first["outbound"] != "direct" {
 		t.Fatalf("first bypass rule = %#v", first)
 	}
-	names, ok := first["process_name"].([]interface{})
+	regexes, ok := first["process_path_regex"].([]interface{})
 	if !ok {
-		t.Fatalf("process_name = %#v", first["process_name"])
+		t.Fatalf("process_path_regex = %#v", first["process_path_regex"])
 	}
-	want := []interface{}{"steam.exe", "Discord.exe"}
-	if !reflect.DeepEqual(names, want) {
-		t.Fatalf("process_name = %#v, want %#v", names, want)
+	if len(regexes) != 2 {
+		t.Fatalf("process_path_regex = %#v", regexes)
+	}
+	for i, raw := range regexes {
+		expr, ok := raw.(string)
+		if !ok {
+			t.Fatalf("regex[%d] = %#v", i, raw)
+		}
+		if _, err := regexp.Compile(expr); err != nil {
+			t.Fatalf("regex[%d] invalid: %v", i, err)
+		}
 	}
 
 	second := rules[1].(map[string]interface{})
