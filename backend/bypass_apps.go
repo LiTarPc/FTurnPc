@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -21,9 +22,8 @@ func bypassAppsPath() string {
 }
 
 // normalizeBypassApp accepts either a process name (steam.exe) or a pasted
-// executable path (C:\\Program Files\\Steam\\steam.exe). sing-box process_name
-// rules match the executable basename, so paths are deliberately reduced to
-// their final component.
+// executable path (C:\\Program Files\\Steam\\steam.exe). Paths are reduced to
+// their executable basename because the UI models bypasses by application.
 func normalizeBypassApp(raw string) (string, bool) {
 	value := strings.TrimSpace(raw)
 	value = strings.Trim(value, `"'`)
@@ -38,6 +38,11 @@ func normalizeBypassApp(raw string) (string, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" || value == "." || value == ".." || value == "/" {
 		return "", false
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return "", false
+		}
 	}
 	return value, true
 }
@@ -124,6 +129,14 @@ func ApplyProcessBypassApps(data []byte, apps []string) ([]byte, error) {
 	return out, nil
 }
 
+func bypassProcessPathRegex(app string) string {
+	// sing-box process_name matching is case-sensitive. Windows process paths
+	// are not usefully case-sensitive, so match the basename using a
+	// case-insensitive path regexp instead. The expression also matches a bare
+	// process name when the platform reports only the basename.
+	return `(?i)(?:^|[\\/])` + regexp.QuoteMeta(app) + `$`
+}
+
 // applyProcessBypassApps inserts a high-priority process rule before DNS
 // hijacking. This is important: a bypassed application must use its normal
 // network path, including its own DNS traffic, instead of being caught by the
@@ -143,14 +156,14 @@ func applyProcessBypassApps(cfg map[string]interface{}, apps []string) error {
 		return fmt.Errorf("sing-box config route.rules is missing or invalid")
 	}
 
-	processNames := make([]interface{}, 0, len(apps))
+	processRegexes := make([]interface{}, 0, len(apps))
 	for _, app := range apps {
-		processNames = append(processNames, app)
+		processRegexes = append(processRegexes, bypassProcessPathRegex(app))
 	}
 	bypassRule := map[string]interface{}{
-		"process_name": processNames,
-		"action":       "route",
-		"outbound":     "direct",
+		"process_path_regex": processRegexes,
+		"action":             "route",
+		"outbound":           "direct",
 	}
 
 	// The user bypass rule must be evaluated before protocol=dns hijack.
