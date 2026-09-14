@@ -20,54 +20,21 @@ type ruBypassInfo struct {
 // UI/session log can distinguish full GeoIP+domain bypass from a domain-only
 // fallback.
 func finalizeRUBypassConfig(data []byte, enabled bool) ([]byte, ruBypassInfo, error) {
-	info := ruBypassInfo{Enabled: enabled}
 	if !enabled {
-		return data, info, nil
+		return data, ruBypassInfo{}, nil
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	var cfg map[string]interface{}
 	if err := dec.Decode(&cfg); err != nil {
-		return nil, info, fmt.Errorf("parse sing-box config for RU bypass: %w", err)
+		return nil, ruBypassInfo{Enabled: true}, fmt.Errorf("parse sing-box config for RU bypass: %w", err)
 	}
-
-	route, ok := cfg["route"].(map[string]interface{})
-	if !ok {
-		return nil, info, fmt.Errorf("RU bypass: route is missing or invalid")
+	info, err := finalizeRUBypassMap(cfg)
+	if err != nil {
+		return nil, info, err
 	}
-
-	if rawSets, ok := route["rule_set"].([]interface{}); ok {
-		for i, raw := range rawSets {
-			set, ok := raw.(map[string]interface{})
-			if !ok {
-				return nil, info, fmt.Errorf("RU bypass: rule_set[%d] is not an object", i)
-			}
-			tag, _ := set["tag"].(string)
-			switch tag {
-			case "geoip-ru":
-				if typ, _ := set["type"].(string); typ == "local" {
-					if p, _ := set["path"].(string); strings.TrimSpace(p) != "" {
-						info.GeoIP = true
-						info.GeoPath = p
-					}
-				}
-			case "ru-domains":
-				info.Domains = true
-				if rules, ok := set["rules"].([]interface{}); ok {
-					for _, rr := range rules {
-						rule, ok := rr.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						rule["domain_suffix"] = normalizeDomainSuffixField(rule["domain_suffix"])
-					}
-				}
-			}
-		}
-	}
-
-	if !info.Domains {
+	if !info.Enabled {
 		return nil, info, fmt.Errorf("RU bypass enabled but ru-domains rule-set is missing")
 	}
 
@@ -76,6 +43,51 @@ func finalizeRUBypassConfig(data []byte, enabled bool) ([]byte, ruBypassInfo, er
 		return nil, info, fmt.Errorf("marshal finalized RU bypass config: %w", err)
 	}
 	return out, info, nil
+}
+
+// finalizeRUBypassMap is also used by the mandatory loopback-hardening pass so
+// every generated config gets the same RU rule normalization before
+// `sing-box check`.
+func finalizeRUBypassMap(cfg map[string]interface{}) (ruBypassInfo, error) {
+	var info ruBypassInfo
+	route, ok := cfg["route"].(map[string]interface{})
+	if !ok {
+		return info, nil
+	}
+
+	rawSets, ok := route["rule_set"].([]interface{})
+	if !ok {
+		return info, nil
+	}
+	for i, raw := range rawSets {
+		set, ok := raw.(map[string]interface{})
+		if !ok {
+			return info, fmt.Errorf("RU bypass: rule_set[%d] is not an object", i)
+		}
+		tag, _ := set["tag"].(string)
+		switch tag {
+		case "geoip-ru":
+			if typ, _ := set["type"].(string); typ == "local" {
+				if p, _ := set["path"].(string); strings.TrimSpace(p) != "" {
+					info.GeoIP = true
+					info.GeoPath = p
+				}
+			}
+		case "ru-domains":
+			info.Enabled = true
+			info.Domains = true
+			if rules, ok := set["rules"].([]interface{}); ok {
+				for _, rr := range rules {
+					rule, ok := rr.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					rule["domain_suffix"] = normalizeDomainSuffixField(rule["domain_suffix"])
+				}
+			}
+		}
+	}
+	return info, nil
 }
 
 func normalizeDomainSuffixField(raw interface{}) interface{} {
