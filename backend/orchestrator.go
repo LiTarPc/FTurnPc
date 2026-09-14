@@ -98,20 +98,30 @@ func (w *wailsLogWriter) appendEntry(level, msg string) {
 	}
 	msg = strings.TrimRight(msg, "\r\n")
 
+	// Preserve the original severity in the persistent session log, but avoid
+	// painting routine per-connection TCP teardown red in the UI. sing-box often
+	// reports normal browser/socket cancellation as ERROR even though the tunnel
+	// itself is healthy.
+	fileLevel := level
+	uiLevel := level
+	if isRoutineSingboxTCPClosure(msg) {
+		uiLevel = "DEBUG"
+	}
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.file != nil {
-		_, _ = fmt.Fprintf(w.file, "[%s] [%s] %s\n", time.Now().Format("15:04:05.000"), level, msg)
+		_, _ = fmt.Fprintf(w.file, "[%s] [%s] %s\n", time.Now().Format("15:04:05.000"), fileLevel, msg)
 		// Errors are the most valuable lines when the process enters a reconnect
 		// loop. Sync them immediately so a subsequent crash cannot lose them.
-		if level == "ERROR" {
+		if fileLevel == "ERROR" {
 			_ = w.file.Sync()
 		}
 	}
 	if len(w.buf) >= maxLogBuf {
 		w.buf = w.buf[1:]
 	}
-	w.buf = append(w.buf, logEntry{level, msg})
+	w.buf = append(w.buf, logEntry{uiLevel, msg})
 }
 
 func (w *wailsLogWriter) Write(p []byte) (int, error) {
@@ -132,7 +142,35 @@ func emitSessionLog(ctx context.Context, level, msg string) {
 		w.appendEntry(level, msg)
 		return
 	}
+	if isRoutineSingboxTCPClosure(msg) {
+		level = "DEBUG"
+	}
 	runtime.EventsEmit(ctx, "log", level, msg)
+}
+
+func isRoutineSingboxTCPClosure(msg string) bool {
+	low := strings.ToLower(msg)
+	if !strings.Contains(low, "[sb]") {
+		return false
+	}
+	if !strings.Contains(low, "connection download closed") &&
+		!strings.Contains(low, "connection upload closed") {
+		return false
+	}
+	for _, marker := range []string{
+		"forcibly closed by the remote host",
+		"connection reset by peer",
+		"broken pipe",
+		"established connection was aborted by the software in your host machine",
+		"use of closed network connection",
+		"operation was canceled",
+		"operation was cancelled",
+	} {
+		if strings.Contains(low, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func classifyLevel(msg string) string {
