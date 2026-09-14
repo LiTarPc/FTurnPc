@@ -182,7 +182,7 @@ func buildFreeTurnArgs(p ConnectParams, prof *ProfileData, mode string) []string
 	}
 	args = append(args, "-n", fmt.Sprintf("%d", workers))
 
-	transport = prof.Transport
+	transport := prof.Transport
 	if transport == "" {
 		transport = "tcp"
 	}
