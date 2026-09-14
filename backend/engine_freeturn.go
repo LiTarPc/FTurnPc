@@ -94,6 +94,15 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	}
 	emitSessionLog(e.appCtx, "INFO", "[SB] loopback bypass: exclude 127.0.0.0/8, bind proxy hop to 127.0.0.1")
 
+	bypassApps := loadBypassApps()
+	if len(bypassApps) > 0 {
+		cfgBytes, err = ApplyProcessBypassApps(cfgBytes, bypassApps)
+		if err != nil {
+			return fmt.Errorf("ошибка настройки application bypass sing-box: %w", err)
+		}
+		emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[SB] application bypass: %d process(es) -> direct", len(bypassApps)))
+	}
+
 	cfgPath, err := writeSingboxSessionConfig(cfgBytes)
 	if err != nil {
 		return err
@@ -222,6 +231,7 @@ func redactFreeTurnArgs(args []string) []string {
 			if i+1 < len(redacted) {
 				redacted[i+1] = "***"
 			}
+		}
 	}
 	return redacted
 }
