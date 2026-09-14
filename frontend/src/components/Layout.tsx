@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Settings from '../modals/Settings';
+import BypassApps from '../modals/BypassApps';
 
 export default function Layout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [bypassOpen, setBypassOpen] = useState(false);
   const loc = useLocation();
   const navigate = useNavigate();
 
@@ -23,12 +25,14 @@ export default function Layout() {
       <div className="layout">
         <Sidebar
           onSettings={() => setSettingsOpen(true)}
+          onBypass={() => setBypassOpen(true)}
         />
         <div className="content">
           <Outlet />
         </div>
       </div>
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      {bypassOpen && <BypassApps onClose={() => setBypassOpen(false)} />}
     </>
   );
 }
