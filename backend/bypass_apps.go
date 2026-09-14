@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -96,6 +97,31 @@ func (a *App) GetBypassApps() []string {
 
 func (a *App) SetBypassApps(apps []string) error {
 	return saveBypassApps(apps)
+}
+
+// ApplyProcessBypassApps injects user-selected split-tunnel applications into
+// a generated sing-box config. The returned JSON is suitable for sing-box
+// check/run and preserves numbers without converting them through float64.
+func ApplyProcessBypassApps(data []byte, apps []string) ([]byte, error) {
+	apps = normalizeBypassApps(apps)
+	if len(apps) == 0 {
+		return data, nil
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var cfg map[string]interface{}
+	if err := dec.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("parse generated sing-box config for app bypass: %w", err)
+	}
+	if err := applyProcessBypassApps(cfg, apps); err != nil {
+		return nil, err
+	}
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal sing-box app bypass config: %w", err)
+	}
+	return out, nil
 }
 
 // applyProcessBypassApps inserts a high-priority process rule before DNS
