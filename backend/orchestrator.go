@@ -48,7 +48,10 @@ func newSessionLogFile(profileName string) *os.File {
 		}
 	}
 
-	name := time.Now().Format("2006-01-02_15-04-05") + "_" + sanitizeFilename(profileName) + ".log"
+	// Nanoseconds make separate user-initiated sessions unambiguous even when a
+	// user disconnects/reconnects very quickly. Automatic reconnects reuse this
+	// same file and therefore never fragment the failure history.
+	name := time.Now().Format("2006-01-02_15-04-05.000000000") + "_" + sanitizeFilename(profileName) + ".log"
 	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil
@@ -88,23 +91,86 @@ func (w *wailsLogWriter) flush() {
 	}
 }
 
-func (w *wailsLogWriter) Write(p []byte) (int, error) {
-	msg := strings.TrimRight(string(p), "\n")
-	if len(msg) > 20 && msg[4] == '/' && msg[7] == '/' && msg[10] == ' ' && msg[13] == ':' && msg[16] == ':' {
-		msg = strings.TrimSpace(msg[20:])
+func (w *wailsLogWriter) appendEntry(level, msg string) {
+	level = strings.ToUpper(strings.TrimSpace(level))
+	if level == "" {
+		level = classifyLevel(msg)
 	}
-	level := classifyLevel(msg)
+	msg = strings.TrimRight(msg, "\r\n")
+
+	// Preserve the original severity in the persistent session log, but avoid
+	// painting routine per-connection TCP teardown red in the UI. sing-box often
+	// reports normal browser/socket cancellation as ERROR even though the tunnel
+	// itself is healthy.
+	fileLevel := level
+	uiLevel := level
+	if isRoutineSingboxTCPClosure(msg) {
+		uiLevel = "DEBUG"
+	}
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.file != nil {
-		_, _ = fmt.Fprintf(w.file, "[%s] [%s] %s\n", time.Now().Format("15:04:05"), level, msg)
+		_, _ = fmt.Fprintf(w.file, "[%s] [%s] %s\n", time.Now().Format("15:04:05.000"), fileLevel, msg)
+		// Errors are the most valuable lines when the process enters a reconnect
+		// loop. Sync them immediately so a subsequent crash cannot lose them.
+		if fileLevel == "ERROR" {
+			_ = w.file.Sync()
+		}
 	}
 	if len(w.buf) >= maxLogBuf {
 		w.buf = w.buf[1:]
 	}
-	w.buf = append(w.buf, logEntry{level, msg})
+	w.buf = append(w.buf, logEntry{uiLevel, msg})
+}
+
+func (w *wailsLogWriter) Write(p []byte) (int, error) {
+	msg := strings.TrimRight(string(p), "\r\n")
+	if len(msg) > 20 && msg[4] == '/' && msg[7] == '/' && msg[10] == ' ' && msg[13] == ':' && msg[16] == ':' {
+		msg = strings.TrimSpace(msg[20:])
+	}
+	w.appendEntry(classifyLevel(msg), msg)
 	return len(p), nil
+}
+
+// emitSessionLog is the single path for session-visible logs. While a user
+// connection session is active it stores the line in the same persistent file
+// and queues it for Wails UI delivery. Outside a session it falls back to a
+// normal Wails event.
+func emitSessionLog(ctx context.Context, level, msg string) {
+	if w, ok := log.Writer().(*wailsLogWriter); ok && w != nil {
+		w.appendEntry(level, msg)
+		return
+	}
+	if isRoutineSingboxTCPClosure(msg) {
+		level = "DEBUG"
+	}
+	runtime.EventsEmit(ctx, "log", level, msg)
+}
+
+func isRoutineSingboxTCPClosure(msg string) bool {
+	low := strings.ToLower(msg)
+	if !strings.Contains(low, "[sb]") {
+		return false
+	}
+	if !strings.Contains(low, "connection download closed") &&
+		!strings.Contains(low, "connection upload closed") {
+		return false
+	}
+	for _, marker := range []string{
+		"forcibly closed by the remote host",
+		"connection reset by peer",
+		"broken pipe",
+		"established connection was aborted by the software in your host machine",
+		"use of closed network connection",
+		"operation was canceled",
+		"operation was cancelled",
+	} {
+		if strings.Contains(low, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func classifyLevel(msg string) string {
@@ -208,6 +274,21 @@ func (o *Orchestrator) triggerReconnect() {
 	}
 }
 
+func (o *Orchestrator) startSessionLog(profileName string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if _, already := log.Writer().(*wailsLogWriter); !already {
+		o.prevLogWriter = log.Writer()
+	}
+	if o.lw != nil {
+		o.stopLogWriterLocked()
+	}
+	o.lw = &wailsLogWriter{ctx: o.appCtx, file: newSessionLogFile(profileName)}
+	o.lw.start()
+	log.SetOutput(o.lw)
+}
+
 func (o *Orchestrator) Start(p ConnectParams) error {
 	o.transitionMu.Lock()
 	defer o.transitionMu.Unlock()
@@ -215,7 +296,7 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 	o.mu.Lock()
 	if o.engine != nil && o.engine.IsRunning() {
 		o.mu.Unlock()
-		runtime.EventsEmit(o.appCtx, "log", "ERROR", "FreeTurn уже запущен")
+		emitSessionLog(o.appCtx, "ERROR", "FreeTurn уже запущен")
 		return fmt.Errorf("already running")
 	}
 	oldEngine := o.engine
@@ -237,6 +318,11 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 	if oldEngine != nil {
 		oldEngine.Stop()
 	}
+	// A new explicit Start is a new user session. Auto-reconnects below reuse
+	// this writer until Stop or the next explicit Start.
+	o.startSessionLog(p.Profile)
+	emitSessionLog(o.appCtx, "INFO", fmt.Sprintf("===== SESSION START profile=%s =====", p.Profile))
+
 	for {
 		select {
 		case <-o.wakeReconnect:
@@ -247,7 +333,9 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 	}
 
 	if err := o.startEngineOnly(ctx, p); err != nil {
+		emitSessionLog(o.appCtx, "ERROR", fmt.Sprintf("Сессия не запущена: %v", err))
 		cancel()
+		o.stopLogWriter()
 		return err
 	}
 	go o.monitorNetwork(ctx, p)
@@ -261,33 +349,20 @@ func (o *Orchestrator) LastParams() ConnectParams {
 }
 
 func (o *Orchestrator) startEngineOnly(ctx context.Context, p ConnectParams) error {
-	runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("Загрузка профиля: %s (path: %s)", p.Profile, profilePath(p.Profile)))
+	emitSessionLog(o.appCtx, "INFO", fmt.Sprintf("Загрузка профиля: %s (path: %s)", p.Profile, profilePath(p.Profile)))
 	prof, err := loadProfile(p.Profile)
 	if err != nil {
-		runtime.EventsEmit(o.appCtx, "log", "ERROR", fmt.Sprintf("Ошибка загрузки профиля: %v", err))
+		emitSessionLog(o.appCtx, "ERROR", fmt.Sprintf("Ошибка загрузки профиля: %v", err))
 		return err
 	}
-	runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("Профиль загружен: peer=%s transport=%s mode=%s obf=%s wg_len=%d", prof.PeerAddr, prof.Transport, prof.Mode, prof.Obf, len(prof.WGConfig)))
-
-	o.mu.Lock()
-	if _, already := log.Writer().(*wailsLogWriter); !already {
-		o.prevLogWriter = log.Writer()
-	}
-	if o.lw != nil {
-		o.stopLogWriterLocked()
-	}
-	o.lw = &wailsLogWriter{ctx: o.appCtx, file: newSessionLogFile(p.Profile)}
-	o.lw.start()
-	log.SetOutput(o.lw)
-	o.mu.Unlock()
+	emitSessionLog(o.appCtx, "INFO", fmt.Sprintf("Профиль загружен: peer=%s transport=%s mode=%s obf=%s wg_len=%d", prof.PeerAddr, prof.Transport, prof.Mode, prof.Obf, len(prof.WGConfig)))
 
 	engine := NewFreeturnEngine(ctx, o.onTray, func(err error) {
-		runtime.EventsEmit(o.appCtx, "log", "WARN", fmt.Sprintf("[Auto-Reconnect] backend завершился: %v", err))
+		emitSessionLog(o.appCtx, "WARN", fmt.Sprintf("[Auto-Reconnect] backend завершился: %v", err))
 		o.triggerReconnect()
 	})
 	if err := engine.Start(p, prof); err != nil {
-		runtime.EventsEmit(o.appCtx, "log", "ERROR", fmt.Sprintf("Ошибка запуска FreeTurn: %v", err))
-		o.stopLogWriter()
+		emitSessionLog(o.appCtx, "ERROR", fmt.Sprintf("Ошибка запуска FreeTurn: %v", err))
 		return err
 	}
 
@@ -295,7 +370,6 @@ func (o *Orchestrator) startEngineOnly(ctx context.Context, p ConnectParams) err
 	if o.userStopped || ctx.Err() != nil {
 		o.mu.Unlock()
 		engine.Stop()
-		o.stopLogWriter()
 		return fmt.Errorf("stopped by user")
 	}
 	o.engine = engine
@@ -325,6 +399,7 @@ func (o *Orchestrator) stopLogWriterLocked() {
 	}
 	lw.mu.Lock()
 	if lw.file != nil {
+		_ = lw.file.Sync()
 		_ = lw.file.Close()
 		lw.file = nil
 	}
@@ -347,6 +422,7 @@ func (o *Orchestrator) Stop() {
 	if engine != nil {
 		engine.Stop()
 	}
+	emitSessionLog(o.appCtx, "INFO", "===== SESSION STOP =====")
 	o.stopLogWriter()
 }
 
@@ -380,9 +456,9 @@ func (o *Orchestrator) monitorNetwork(ctx context.Context, p ConnectParams) {
 			continue
 		}
 		if !engineRunning {
-			runtime.EventsEmit(o.appCtx, "log", "WARN", "[Auto-Reconnect] backend остановлен. Переподключение...")
+			emitSessionLog(o.appCtx, "WARN", "[Auto-Reconnect] backend остановлен. Переподключение...")
 		} else {
-			runtime.EventsEmit(o.appCtx, "log", "WARN", "Смена сети. Переподключение...")
+			emitSessionLog(o.appCtx, "WARN", "Смена сети. Переподключение...")
 		}
 		if !o.reconnect(ctx, p) {
 			return
@@ -405,8 +481,10 @@ func (o *Orchestrator) reconnect(ctx context.Context, p ConnectParams) bool {
 	if engine != nil {
 		engine.Stop()
 	}
-	o.stopLogWriter()
 
+	// Do not stop/recreate the log writer here. A reconnect is still the same
+	// user session, so all attempts and their errors must remain in one file.
+	attempt := 0
 	for {
 		timer := time.NewTimer(3 * time.Second)
 		select {
@@ -425,12 +503,13 @@ func (o *Orchestrator) reconnect(ctx context.Context, p ConnectParams) bool {
 		if !IsInternetAvailable() {
 			continue
 		}
-		runtime.EventsEmit(o.appCtx, "log", "INFO", "[Auto-Reconnect] Восстановление туннеля...")
+		attempt++
+		emitSessionLog(o.appCtx, "INFO", fmt.Sprintf("[Auto-Reconnect] Попытка #%d: восстановление туннеля...", attempt))
 		if err := o.startEngineOnly(ctx, p); err == nil {
-			runtime.EventsEmit(o.appCtx, "log", "INFO", "[Auto-Reconnect] Связь успешно восстановлена!")
+			emitSessionLog(o.appCtx, "INFO", fmt.Sprintf("[Auto-Reconnect] Связь успешно восстановлена на попытке #%d", attempt))
 			return true
 		} else {
-			runtime.EventsEmit(o.appCtx, "log", "WARN", fmt.Sprintf("[Auto-Reconnect] Ошибка восстановления: %v", err))
+			emitSessionLog(o.appCtx, "WARN", fmt.Sprintf("[Auto-Reconnect] Попытка #%d не удалась: %v", attempt, err))
 		}
 	}
 }

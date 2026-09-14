@@ -74,12 +74,35 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if err != nil {
 		return fmt.Errorf("FreeTurn mode: %w", err)
 	}
+	transport := prof.Transport
+	if transport == "" {
+		transport = "tcp"
+	}
+	emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[FT] relay mode=%s, TURN transport=%s, local=%s:9000", mode, transport, freeTurnHost))
 
 	// Generate and validate sing-box before spending time establishing FreeTurn.
 	cfgBytes, err := BuildSingboxConfig(prof, p)
 	if err != nil {
 		return fmt.Errorf("ошибка генерации sing-box конфига: %w", err)
 	}
+	// The real proxy hop is always localhost:9000. Keep that hop completely
+	// outside the TUN route and explicitly bind its dialer to loopback so
+	// route.auto_detect_interface cannot force the socket onto the physical NIC.
+	cfgBytes, err = HardenSingboxLoopbackConfig(cfgBytes)
+	if err != nil {
+		return fmt.Errorf("ошибка настройки loopback bypass sing-box: %w", err)
+	}
+	emitSessionLog(e.appCtx, "INFO", "[SB] loopback bypass: exclude 127.0.0.0/8, bind proxy hop to 127.0.0.1")
+
+	bypassApps := loadBypassApps()
+	if len(bypassApps) > 0 {
+		cfgBytes, err = ApplyProcessBypassApps(cfgBytes, bypassApps)
+		if err != nil {
+			return fmt.Errorf("ошибка настройки application bypass sing-box: %w", err)
+		}
+		emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[SB] application bypass: %d process(es) -> direct", len(bypassApps)))
+	}
+
 	cfgPath, err := writeSingboxSessionConfig(cfgBytes)
 	if err != nil {
 		return err
@@ -102,6 +125,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if err := singboxCheck(sbPath, e.sbCfgPath); err != nil {
 		return fmt.Errorf("невалидный sing-box конфиг: %w", err)
 	}
+	emitSessionLog(e.appCtx, "INFO", "[SB] sing-box check OK; ожидаем готовность FreeTurn")
 
 	exePath := getFreeturnPath()
 	if st, err := os.Stat(exePath); err != nil || st.IsDir() {
@@ -135,7 +159,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
-	runtime.EventsEmit(e.appCtx, "log", "DEBUG", fmt.Sprintf("Launching freeturn: %s %v", exePath, redactFreeTurnArgs(args)))
+	emitSessionLog(e.appCtx, "DEBUG", fmt.Sprintf("Launching freeturn: %s %v", exePath, redactFreeTurnArgs(args)))
 	if err := cmd.Start(); err != nil {
 		cancel()
 		e.cancel = nil
@@ -262,7 +286,7 @@ func (e *FreeturnEngine) waitFreeTurn(cmd *exec.Cmd, exitChan chan struct{}) {
 	e.sbTun.Stop()
 	e.wg.Wait()
 
-	runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
+	emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
 	if stopped {
 		runtime.EventsEmit(e.appCtx, "state_changed", "disconnected", "")
 	} else {

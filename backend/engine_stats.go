@@ -1,12 +1,54 @@
 package backend
 
 import (
+	goruntime "runtime"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// startStatsLoop запускает фоновый опрос объема сетевого трафика и количества активных потоков.
+// trafficCounter converts an absolute interface byte counter into bytes used
+// since this stats loop started. This is important on Windows because the TUN
+// adapter can survive between sessions and GetIfEntry reports lifetime adapter
+// counters rather than per-connection counters.
+type trafficCounter struct {
+	initialized bool
+	last        int64
+	total       int64
+}
+
+func (c *trafficCounter) update(raw int64, windows32 bool) int64 {
+	if raw < 0 {
+		return c.total
+	}
+	if !c.initialized {
+		c.initialized = true
+		c.last = raw
+		return 0
+	}
+
+	var delta int64
+	switch {
+	case raw >= c.last:
+		delta = raw - c.last
+	case windows32 && c.last > 0x80000000 && raw < 0x40000000:
+		// Legacy GetIfEntry exposes 32-bit octet counters. Handle a real
+		// uint32 wrap without turning it into a multi-gigabyte UI spike.
+		delta = (1 << 32) - c.last + raw
+	default:
+		// The interface counter was reset/recreated. Keep the accumulated
+		// session total and count only bytes observed after the reset.
+		delta = raw
+	}
+
+	if delta > 0 {
+		c.total += delta
+	}
+	c.last = raw
+	return c.total
+}
+
+// startStatsLoop polls the TUN byte counters and active FreeTurn streams.
 func (e *FreeturnEngine) startStatsLoop() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -18,8 +60,8 @@ func (e *FreeturnEngine) startStatsLoop() {
 		t := time.NewTicker(1 * time.Second)
 		defer t.Stop()
 
-		var lastRx, lastTx int64
-		var cumRx, cumTx int64
+		var rxCounter, txCounter trafficCounter
+		windows32 := goruntime.GOOS == "windows"
 
 		for {
 			select {
@@ -29,28 +71,8 @@ func (e *FreeturnEngine) startStatsLoop() {
 					continue
 				}
 
-				// Компенсация 32-битного переполнения (Windows GetIfEntry возвращает uint32)
-				if rx < lastRx {
-					if lastRx > 0x80000000 && rx < 0x40000000 {
-						// Реальное переполнение uint32 (> 4 ГБ)
-						cumRx += (1 << 32)
-					} else {
-						// Сброс счетчика сетевого адаптера (реконнект, переподнятие интерфейса)
-						cumRx += lastRx
-					}
-				}
-				if tx < lastTx {
-					if lastTx > 0x80000000 && tx < 0x40000000 {
-						cumTx += (1 << 32)
-					} else {
-						cumTx += lastTx
-					}
-				}
-				lastRx = rx
-				lastTx = tx
-
-				realRx := cumRx + rx
-				realTx := cumTx + tx
+				sessionRx := rxCounter.update(rx, windows32)
+				sessionTx := txCounter.update(tx, windows32)
 
 				e.muStreams.Lock()
 				activeCount := len(e.activeStreams)
@@ -59,11 +81,11 @@ func (e *FreeturnEngine) startStatsLoop() {
 				packedWorkers := int32(activeCount) | (int32(e.configuredStreams) << 16)
 
 				if e.onTray != nil {
-					e.onTray(true, realRx, realTx, packedWorkers)
+					e.onTray(true, sessionRx, sessionTx, packedWorkers)
 				}
 				runtime.EventsEmit(e.appCtx, "stats", map[string]interface{}{
-					"rx":             realRx,
-					"tx":             realTx,
+					"rx":             sessionRx,
+					"tx":             sessionTx,
 					"active_streams": activeCount,
 					"configured_max": e.configuredStreams,
 				})

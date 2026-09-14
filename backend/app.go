@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -20,12 +21,27 @@ type App struct {
 	trayEnabled atomic.Bool
 	quitting    atomic.Bool
 	trayIcon    []byte
+	geoIPRuSRS  []byte
 }
 
-func NewApp(trayIcon []byte) *App { return &App{trayIcon: trayIcon} }
+func NewApp(trayIcon, geoIPRuSRS []byte) *App {
+	return &App{trayIcon: trayIcon, geoIPRuSRS: geoIPRuSRS}
+}
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// Keep the RU GeoIP rule-set independent from Wails' build output layout.
+	// The source asset is embedded into the executable by each platform entrypoint
+	// and materialized to configDir because sing-box local rule_sets require a path.
+	if len(a.geoIPRuSRS) > 0 {
+		if path, err := installEmbeddedGeoIPRuSRS(a.geoIPRuSRS); err != nil {
+			log.Printf("[SB] WARN: failed to install embedded geoip-ru.srs: %v", err)
+		} else {
+			log.Printf("[SB] RU GeoIP rule-set ready: %s", path)
+		}
+	}
+
 	a.orch = NewOrchestrator(ctx, a.updateTray)
 
 	CleanupNetworkLeftovers()

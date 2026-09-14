@@ -44,9 +44,23 @@ function useWailsEvents() {
       }),
       EventsOn('state_changed', (status: unknown) => {
         const s = String(status ?? '');
-        if (s === 'running') { tunnelStore.set('connected'); logStore.push('INFO', '✓ Туннель активен'); }
-        else if (s === 'connecting') { tunnelStore.set('connecting'); logStore.clear(); logStore.push('INFO', '⟳ Подключение...'); }
-        else if (s === 'stopped' || s === 'error' || s === 'disconnected') { tunnelStore.set('idle'); logStore.push('INFO', '— Отключено'); }
+        if (s === 'running') {
+          tunnelStore.set('connected');
+          logStore.push('INFO', '✓ Туннель активен');
+        } else if (s === 'connecting') {
+          // Do not clear the UI log on backend auto-reconnect. The user starts
+          // a new visible session in Connect.doConnect(), where the log is
+          // cleared explicitly. Reconnect attempts must preserve the failure
+          // history just like the persistent session log on disk.
+          const previous = tunnelStore.get();
+          tunnelStore.set('connecting');
+          if (previous !== 'connecting') {
+            logStore.push('INFO', '⟳ Переподключение...');
+          }
+        } else if (s === 'stopped' || s === 'error' || s === 'disconnected') {
+          tunnelStore.set('idle');
+          logStore.push('INFO', '— Отключено');
+        }
       }),
       EventsOn('event', (name: unknown) => {
         if (name === 'wg_config') tunnelStore.set('connected');
