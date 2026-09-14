@@ -6,6 +6,7 @@ import {
   IconSettings2,
   IconSun,
   IconMoon,
+  IconApps,
 } from '@tabler/icons-react';
 import { themeStore } from '../lib/stores/themeStore';
 
@@ -16,10 +17,11 @@ const NAV = [
 
 interface Props {
   onSettings?: () => void;
+  onBypass?: () => void;
   pathname?: string;
 }
 
-export default function Sidebar({ onSettings, pathname: pathnameProp }: Props) {
+export default function Sidebar({ onSettings, onBypass, pathname: pathnameProp }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = pathnameProp ?? location.pathname;
@@ -118,6 +120,10 @@ export default function Sidebar({ onSettings, pathname: pathnameProp }: Props) {
               <span className="nav-label">{label}</span>
             </button>
           ))}
+          <button className="nav-btn" onClick={onBypass} title="Bypass приложений">
+            <IconApps stroke={2} size={22} />
+            <span className="nav-label">обход</span>
+          </button>
         </div>
         <div className="sidebar-bottom">
           <button className="theme-toggle" onClick={toggleTheme} title="Сменить тему">
