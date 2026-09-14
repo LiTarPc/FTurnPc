@@ -78,7 +78,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if transport == "" {
 		transport = "tcp"
 	}
-	runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[FT] relay mode=%s, TURN transport=%s, local=%s:9000", mode, transport, freeTurnHost))
+	emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[FT] relay mode=%s, TURN transport=%s, local=%s:9000", mode, transport, freeTurnHost))
 
 	// Generate and validate sing-box before spending time establishing FreeTurn.
 	cfgBytes, err := BuildSingboxConfig(prof, p)
@@ -107,7 +107,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if err := singboxCheck(sbPath, e.sbCfgPath); err != nil {
 		return fmt.Errorf("невалидный sing-box конфиг: %w", err)
 	}
-	runtime.EventsEmit(e.appCtx, "log", "INFO", "[SB] sing-box check OK; ожидаем готовность FreeTurn")
+	emitSessionLog(e.appCtx, "INFO", "[SB] sing-box check OK; ожидаем готовность FreeTurn")
 
 	exePath := getFreeturnPath()
 	if st, err := os.Stat(exePath); err != nil || st.IsDir() {
@@ -141,7 +141,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
-	runtime.EventsEmit(e.appCtx, "log", "DEBUG", fmt.Sprintf("Launching freeturn: %s %v", exePath, redactFreeTurnArgs(args)))
+	emitSessionLog(e.appCtx, "DEBUG", fmt.Sprintf("Launching freeturn: %s %v", exePath, redactFreeTurnArgs(args)))
 	if err := cmd.Start(); err != nil {
 		cancel()
 		e.cancel = nil
@@ -268,7 +268,7 @@ func (e *FreeturnEngine) waitFreeTurn(cmd *exec.Cmd, exitChan chan struct{}) {
 	e.sbTun.Stop()
 	e.wg.Wait()
 
-	runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
+	emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
 	if stopped {
 		runtime.EventsEmit(e.appCtx, "state_changed", "disconnected", "")
 	} else {
