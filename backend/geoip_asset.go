@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ func installEmbeddedGeoIPRuSRS(data []byte) (string, error) {
 	}
 
 	dst := filepath.Join(configDir(), "geoip-ru.srs")
-	if st, err := os.Stat(dst); err == nil && !st.IsDir() && st.Size() == int64(len(data)) {
+	if existing, err := os.ReadFile(dst); err == nil && bytes.Equal(existing, data) {
 		return dst, nil
 	}
 
