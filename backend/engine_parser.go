@@ -26,26 +26,29 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 		e.trackFreeTurnStream(line)
 
 		if strings.Contains(line, "all VK credentials failed") {
-			runtime.EventsEmit(e.appCtx, "log", "WARN", "[SB] Ошибка получения токена VK для потока. Ожидание автоматической повторной попытки...")
+			emitSessionLog(e.appCtx, "WARN", "[SB] Ошибка получения токена VK для потока. Ожидание автоматической повторной попытки...")
 		}
 
 		lowerLine := strings.ToLower(line)
 		if strings.Contains(lowerLine, "localhost:8765") || strings.Contains(lowerLine, "localhost:2212") ||
 			strings.Contains(lowerLine, "127.0.0.1:8765") || strings.Contains(lowerLine, "127.0.0.1:2212") ||
 			strings.Contains(lowerLine, "manual captcha") {
-			runtime.EventsEmit(e.appCtx, "log", "WARNING", "[SB] Требуется ввод капчи. Ожидание действий пользователя (туннель не отключается)...")
+			emitSessionLog(e.appCtx, "WARN", "[SB] Требуется ввод капчи. Ожидание действий пользователя (туннель не отключается)...")
 		}
 
 		if isFreeTurnReadyLine(line) {
 			e.startSingboxWhenReady()
 		}
 
+		bounded := boundedLogLine(line, 4096)
 		level := classifyLevel(line)
-		runtime.EventsEmit(e.appCtx, "log", level, boundedLogLine(line, 4096))
+		emitSessionLog(e.appCtx, level, bounded)
 		if strings.Contains(lowerLine, "fatal") || strings.Contains(lowerLine, "error") {
 			now := time.Now()
 			if now.Sub(lastErrTime) > 5*time.Second {
-				runtime.EventsEmit(e.appCtx, "error", boundedLogLine(line, 4096))
+				// Keep the dedicated UI error event for the frontend modal/toast, while
+				// emitSessionLog above guarantees the same line is persisted on disk.
+				runtime.EventsEmit(e.appCtx, "error", bounded)
 				lastErrTime = now
 			}
 		}
@@ -161,12 +164,12 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 
 	// This INFO line makes the transport -> TUN hand-off visible in the UI and
 	// makes future startup failures much easier to diagnose from user logs.
-	runtime.EventsEmit(e.appCtx, "log", "INFO", "[FT] Транспорт FreeTurn готов; запускаем sing-box...")
+	emitSessionLog(e.appCtx, "INFO", "[FT] Транспорт FreeTurn готов; запускаем sing-box...")
 
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		runtime.EventsEmit(e.appCtx, "log", "INFO", "[SB] Запуск sing-box TUN...")
+		emitSessionLog(e.appCtx, "INFO", "[SB] Запуск sing-box TUN...")
 
 		if err := e.sbTun.Start(cfgPath); err != nil {
 			e.mu.Lock()
@@ -179,7 +182,7 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 			}
 			msg := fmt.Sprintf("[SB] Ошибка запуска: %v", err)
 			runtime.EventsEmit(e.appCtx, "error", msg)
-			runtime.EventsEmit(e.appCtx, "log", "ERROR", msg)
+			emitSessionLog(e.appCtx, "ERROR", msg)
 			e.fail(fmt.Errorf("sing-box startup failed: %w", err))
 			return
 		}
@@ -196,7 +199,7 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 		e.mu.Unlock()
 
 		runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
-		runtime.EventsEmit(e.appCtx, "log", "INFO", "[SB] Туннель активен ✓")
+		emitSessionLog(e.appCtx, "INFO", "[SB] Туннель активен ✓")
 		if e.onTray != nil {
 			e.onTray(true, 0, 0, 0)
 		}
@@ -222,6 +225,6 @@ func (e *FreeturnEngine) emitNATInfoAfterDelay() {
 	}
 	if natRes, err := CheckNATType(); err == nil && natRes != nil {
 		runtime.EventsEmit(e.appCtx, "nat_info", natRes)
-		runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[NAT] Тип NAT: %s (%s)", natRes.NATType, natRes.Details))
+		emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[NAT] Тип NAT: %s (%s)", natRes.NATType, natRes.Details))
 	}
 }
