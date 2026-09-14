@@ -85,6 +85,15 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if err != nil {
 		return fmt.Errorf("ошибка генерации sing-box конфига: %w", err)
 	}
+	// The real proxy hop is always localhost:9000. Keep that hop completely
+	// outside the TUN route and explicitly bind its dialer to loopback so
+	// route.auto_detect_interface cannot force the socket onto the physical NIC.
+	cfgBytes, err = HardenSingboxLoopbackConfig(cfgBytes)
+	if err != nil {
+		return fmt.Errorf("ошибка настройки loopback bypass sing-box: %w", err)
+	}
+	emitSessionLog(e.appCtx, "INFO", "[SB] loopback bypass: exclude 127.0.0.0/8, bind proxy hop to 127.0.0.1")
+
 	cfgPath, err := writeSingboxSessionConfig(cfgBytes)
 	if err != nil {
 		return err
@@ -213,7 +222,6 @@ func redactFreeTurnArgs(args []string) []string {
 			if i+1 < len(redacted) {
 				redacted[i+1] = "***"
 			}
-		}
 	}
 	return redacted
 }
