@@ -13,65 +13,77 @@ import (
 
 const wgIface = "wg-turn"
 
-// GetVKExcludeCIDRs возвращает подсети VK, которые должны идти напрямую, а не через туннель.
 func GetVKExcludeCIDRs() []string {
 	return []string{
-		"87.240.128.0/18",  // VK
-		"87.240.192.0/19",  // VK
-		"90.156.0.0/16",    // VK TURN (90.156.234.x, 90.156.236.x и др.)
-		"93.186.224.0/21",  // VK
-		"95.142.192.0/21",  // VK
-		"95.163.0.0/16",    // VK TURN (95.163.34.x и др.)
-		"95.213.0.0/18",    // VK (id.vk.ru, login.vk.com)
-		"155.212.192.0/20", // OK/VK (calls.okcdn.ru)
-		"185.16.28.0/22",   // VK
-		"194.67.64.0/18",   // VK
-		"195.82.146.0/23",  // VK
+		"87.240.128.0/18",
+		"87.240.192.0/19",
+		"90.156.0.0/16",
+		"93.186.224.0/21",
+		"95.142.192.0/21",
+		"95.163.0.0/16",
+		"95.213.0.0/18",
+		"155.212.192.0/20",
+		"185.16.28.0/22",
+		"194.67.64.0/18",
+		"195.82.146.0/23",
 	}
 }
 
-
-// wg-quick-only fields that wg setconf doesn't understand
 var wgQuickOnlyFields = map[string]bool{
 	"address": true, "dns": true, "mtu": true,
 	"preup": true, "postup": true, "predown": true, "postdown": true,
 	"saveconfig": true, "table": true, "fwmark": true,
 }
 
-// parseWGConfig извлекает параметры Address, MTU, AllowedIPs, DNS-серверы и возвращает конфиг, совместимый с wg setconf.
+// parseWGConfig extracts wg-quick fields while respecting [Interface]/[Peer]
+// sections. Previously any Address/AllowedIPs line anywhere in the file could be
+// misclassified, which made malformed configs look valid.
 func parseWGConfig(conf string) (addr, mtu string, allowedIPs, dnsServers []string, wgConf string) {
 	var out strings.Builder
+	section := ""
 	scanner := bufio.NewScanner(strings.NewReader(conf))
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			section = strings.ToLower(strings.TrimSpace(trimmed[1 : len(trimmed)-1]))
+			out.WriteString(line + "\n")
+			continue
+		}
+
 		parts := strings.SplitN(trimmed, "=", 2)
 		if len(parts) == 2 {
 			key := strings.ToLower(strings.TrimSpace(parts[0]))
 			val := strings.TrimSpace(parts[1])
-			switch key {
-			case "address":
-				addr = val
-				continue
-			case "mtu":
-				mtu = val
-				continue
-			case "dns":
-				for _, d := range strings.Split(val, ",") {
-					if item := strings.TrimSpace(d); item != "" {
-						dnsServers = append(dnsServers, item)
-					}
-				}
-				continue
-			case "allowedips":
-				for _, cidr := range strings.Split(val, ",") {
-					if c := strings.TrimSpace(cidr); c != "" {
-						allowedIPs = append(allowedIPs, c)
-					}
-				}
-			default:
-				if wgQuickOnlyFields[key] {
+			switch section {
+			case "interface":
+				switch key {
+				case "address":
+					addr = val
 					continue
+				case "mtu":
+					mtu = val
+					continue
+				case "dns":
+					for _, d := range strings.Split(val, ",") {
+						if item := strings.TrimSpace(d); item != "" {
+							dnsServers = append(dnsServers, item)
+						}
+					}
+					continue
+				default:
+					if wgQuickOnlyFields[key] {
+						continue
+					}
+				}
+			case "peer":
+				if key == "allowedips" {
+					for _, cidr := range strings.Split(val, ",") {
+						if c := strings.TrimSpace(cidr); c != "" {
+							allowedIPs = append(allowedIPs, c)
+						}
+					}
 				}
 			}
 		}
@@ -84,7 +96,6 @@ func parseWGConfig(conf string) (addr, mtu string, allowedIPs, dnsServers []stri
 	return
 }
 
-// mergeCIDRs aggregates contiguous or overlapping IPv4 networks to minimize route count.
 func mergeCIDRs(cidrs []string) []string {
 	var nets []*net.IPNet
 	for _, cidr := range cidrs {
@@ -116,13 +127,10 @@ func mergeCIDRs(cidrs []string) []string {
 			merged = append(merged, n)
 			continue
 		}
-
 		last := merged[len(merged)-1]
-
 		if last.Contains(n.IP) {
 			continue
 		}
-
 		onesL, _ := last.Mask.Size()
 		onesN, _ := n.Mask.Size()
 		if onesL == onesN && onesL > 0 {
@@ -133,7 +141,6 @@ func mergeCIDRs(cidrs []string) []string {
 				continue
 			}
 		}
-
 		merged = append(merged, n)
 	}
 
@@ -144,7 +151,6 @@ func mergeCIDRs(cidrs []string) []string {
 	return result
 }
 
-// loadGeoIPRuCIDRs reads geoip-ru.txt, resolves domains to IP addresses, and merges overlapping CIDRs.
 func loadGeoIPRuCIDRs() []string {
 	var bytes []byte
 	exe, err := os.Executable()
@@ -163,7 +169,6 @@ func loadGeoIPRuCIDRs() []string {
 
 	lines := strings.Split(string(bytes), "\n")
 	var ruCIDRs []string
-
 	var domainsToResolve []string
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -204,7 +209,6 @@ func loadGeoIPRuCIDRs() []string {
 				if dom == "" {
 					return
 				}
-
 				ips, err := net.LookupIP(dom)
 				if err == nil {
 					mu.Lock()

@@ -28,7 +28,6 @@ func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	a.orch = NewOrchestrator(ctx, a.updateTray)
 
-	// Очищаем зависшие сетевые правила (NRPT, брандмауэр) от прошлых некорректных завершений
 	CleanupNetworkLeftovers()
 
 	startTray(a.trayIcon,
@@ -51,7 +50,7 @@ func (a *App) updateTray(connected bool, rx, tx int64, workers int32) {
 func (a *App) OnBeforeClose(ctx context.Context) bool {
 	if a.trayEnabled.Load() && !a.quitting.Load() {
 		runtime.WindowHide(ctx)
-		return true // prevent close
+		return true
 	}
 	if a.orch.IsRunning() {
 		a.orch.Stop()
@@ -64,7 +63,6 @@ func (a *App) Disconnect()                   { a.orch.Stop() }
 func (a *App) IsRunning() bool               { return a.orch.IsRunning() }
 func (a *App) CheckNAT() (*NATResult, error) { return CheckNATType() }
 
-// CheckVPN returns names of active VPN interfaces (excluding our wg-turn).
 func (a *App) CheckVPN() []string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -79,14 +77,9 @@ func (a *App) CheckVPN() []string {
 		if n == wgIface || n == singTunName {
 			continue
 		}
-		if strings.HasPrefix(n, "tun") ||
-			strings.HasPrefix(n, "tap") ||
-			strings.HasPrefix(n, "wg") ||
-			strings.HasPrefix(n, "ppp") ||
-			strings.HasPrefix(n, "nordlynx") ||
-			strings.HasPrefix(n, "proton") ||
-			strings.HasPrefix(n, "utun") ||
-			strings.HasPrefix(n, "ipsec") {
+		if strings.HasPrefix(n, "tun") || strings.HasPrefix(n, "tap") || strings.HasPrefix(n, "wg") ||
+			strings.HasPrefix(n, "ppp") || strings.HasPrefix(n, "nordlynx") || strings.HasPrefix(n, "proton") ||
+			strings.HasPrefix(n, "utun") || strings.HasPrefix(n, "ipsec") {
 			found = append(found, iface.Name)
 		}
 	}
@@ -98,15 +91,19 @@ func (a *App) SaveProfile(name string, p ProfileData) error {
 		return fmt.Errorf("invalid profile name")
 	}
 	dir := filepath.Join(configDir(), "profiles")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	// DeviceID is no longer used in FreeTurn profile
+	_ = os.Chmod(dir, 0o700)
 	data, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(profilePath(name), data, 0o600)
+	path := profilePath(name)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }
 
 func (a *App) GetProfile(name string) (*ProfileData, error) {
@@ -148,9 +145,7 @@ func (a *App) ListProfiles() map[string]ProfileData {
 	return result
 }
 
-func (a *App) CheckCoreUpdate() (CoreUpdateInfo, error) {
-	return CheckCoreUpdate()
-}
+func (a *App) CheckCoreUpdate() (CoreUpdateInfo, error) { return CheckCoreUpdate() }
 
 func (a *App) UpdateCore(downloadURL string) error {
 	wasRunning := a.orch != nil && a.orch.IsRunning()
@@ -175,13 +170,8 @@ func (a *App) UpdateCore(downloadURL string) error {
 	return err
 }
 
-func (a *App) GetCoreVersion() string {
-	return GetCoreVersion()
-}
-
-func (a *App) GetSingboxVersion() string {
-	return singboxVersion()
-}
+func (a *App) GetCoreVersion() string    { return GetCoreVersion() }
+func (a *App) GetSingboxVersion() string { return singboxVersion() }
 
 func (a *App) SelectAndReplaceCore() (string, error) {
 	wasRunning := a.orch != nil && a.orch.IsRunning()

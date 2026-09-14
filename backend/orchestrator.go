@@ -15,7 +15,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// wailsLogWriter перехватывает log.Printf и направляет в Wails-события.
 type wailsLogWriter struct {
 	ctx  context.Context
 	mu   sync.Mutex
@@ -30,42 +29,42 @@ type logEntry struct{ level, msg string }
 
 func newSessionLogFile(profileName string) *os.File {
 	dir := filepath.Join(configDir(), "logs")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil
 	}
+	_ = os.Chmod(dir, 0o700)
 
-	// Simple log rotation: keep only the last 10 log files
 	if entries, err := os.ReadDir(dir); err == nil {
 		var logs []string
-		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), ".log") {
-				logs = append(logs, filepath.Join(dir, e.Name()))
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".log") {
+				logs = append(logs, filepath.Join(dir, entry.Name()))
 			}
 		}
 		if len(logs) >= 10 {
-			for _, l := range logs[:len(logs)-9] {
-				_ = os.Remove(l)
+			for _, old := range logs[:len(logs)-9] {
+				_ = os.Remove(old)
 			}
 		}
 	}
 
-	ts := time.Now().Format("2006-01-02_15-04-05")
-	name := ts + "_" + sanitizeFilename(profileName) + ".log"
+	name := time.Now().Format("2006-01-02_15-04-05") + "_" + sanitizeFilename(profileName) + ".log"
 	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil
 	}
+	_ = f.Chmod(0o600)
 	return f
 }
 
 func (w *wailsLogWriter) start() {
 	w.stop = make(chan struct{})
 	go func() {
-		t := time.NewTicker(100 * time.Millisecond)
-		defer t.Stop()
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
-			case <-t.C:
+			case <-ticker.C:
 				w.flush()
 			case <-w.stop:
 				w.flush()
@@ -81,55 +80,41 @@ func (w *wailsLogWriter) flush() {
 		w.mu.Unlock()
 		return
 	}
-	batch := w.buf
+	batch := append([]logEntry(nil), w.buf...)
 	w.buf = nil
 	w.mu.Unlock()
-	for _, e := range batch {
-		runtime.EventsEmit(w.ctx, "log", e.level, e.msg)
+	for _, entry := range batch {
+		runtime.EventsEmit(w.ctx, "log", entry.level, entry.msg)
 	}
 }
 
 func (w *wailsLogWriter) Write(p []byte) (int, error) {
 	msg := strings.TrimRight(string(p), "\n")
-	// Стандартный префикс даты Go log: "YYYY/MM/DD HH:MM:SS "
 	if len(msg) > 20 && msg[4] == '/' && msg[7] == '/' && msg[10] == ' ' && msg[13] == ':' && msg[16] == ':' {
 		msg = strings.TrimSpace(msg[20:])
 	}
 	level := classifyLevel(msg)
 
-	if w.file != nil {
-		ts := time.Now().Format("15:04:05")
-		fmt.Fprintf(w.file, "[%s] [%s] %s\n", ts, level, msg)
-	}
-
 	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file != nil {
+		_, _ = fmt.Fprintf(w.file, "[%s] [%s] %s\n", time.Now().Format("15:04:05"), level, msg)
+	}
 	if len(w.buf) >= maxLogBuf {
 		w.buf = w.buf[1:]
 	}
 	w.buf = append(w.buf, logEntry{level, msg})
-	w.mu.Unlock()
 	return len(p), nil
 }
 
 func classifyLevel(msg string) string {
 	low := strings.ToLower(msg)
 	switch {
-	case strings.Contains(low, "fatal_auth") ||
-		strings.Contains(low, "ошибка") ||
-		strings.Contains(low, "error") ||
-		strings.Contains(low, "fatal") ||
-		strings.Contains(low, "фатальн"):
+	case strings.Contains(low, "fatal_auth") || strings.Contains(low, "ошибка") || strings.Contains(low, "error") || strings.Contains(low, "fatal") || strings.Contains(low, "фатальн"):
 		return "ERROR"
-	case strings.Contains(low, "warn") ||
-		strings.Contains(low, "не удалось") ||
-		strings.Contains(low, "повторим") ||
-		strings.Contains(low, "повторяем") ||
-		strings.Contains(low, "retry"):
+	case strings.Contains(low, "warn") || strings.Contains(low, "не удалось") || strings.Contains(low, "повторим") || strings.Contains(low, "повторяем") || strings.Contains(low, "retry"):
 		return "WARN"
-	case strings.Contains(low, "debug") ||
-		strings.Contains(low, "obfs") ||
-		strings.Contains(low, "unwrap") ||
-		strings.Contains(low, "wrap:"):
+	case strings.Contains(low, "debug") || strings.Contains(low, "obfs") || strings.Contains(low, "unwrap") || strings.Contains(low, "wrap:"):
 		return "DEBUG"
 	default:
 		return "INFO"
@@ -138,11 +123,12 @@ func classifyLevel(msg string) string {
 
 func configDir() string {
 	base, err := os.UserConfigDir()
-	if err != nil {
+	if err != nil || base == "" {
 		base = os.Getenv("HOME")
 	}
 	dir := filepath.Join(base, "FTurnPc-singbox")
-	_ = os.MkdirAll(dir, 0o755)
+	_ = os.MkdirAll(dir, 0o700)
+	_ = os.Chmod(dir, 0o700)
 	return dir
 }
 
@@ -158,15 +144,17 @@ func profilePath(name string) string {
 	return filepath.Join(configDir(), "profiles", sanitizeFilename(name)+".json")
 }
 
-// ProfileData — хранится в ~/.config/fturnpc/profiles/<name>.json
+// ProfileData is the stored FreeTurn profile. Mode is the FreeTurn backend mode
+// (tcp/udp) and is separate from Transport, which selects the TURN transport.
 type ProfileData struct {
-	Name      string `json:"name"`
-	Provider  string `json:"provider"`
-	PeerAddr  string `json:"peer"`
-	Transport string `json:"transport"`
-	Obf       string `json:"obf"`
-	Key       string `json:"key"`
-	Cid       string `json:"cid"`
+	Name           string          `json:"name"`
+	Provider       string          `json:"provider"`
+	PeerAddr       string          `json:"peer"`
+	Transport      string          `json:"transport"`
+	Mode           string          `json:"mode,omitempty"`
+	Obf            string          `json:"obf"`
+	Key            string          `json:"key"`
+	Cid            string          `json:"cid"`
 	WGConfig       string          `json:"wg"`
 	Links          string          `json:"links,omitempty"`
 	Power          int             `json:"power,omitempty"`
@@ -174,7 +162,6 @@ type ProfileData struct {
 	SB             json.RawMessage `json:"sb,omitempty"`
 }
 
-// ConnectParams — runtime параметры от UI.
 type ConnectParams struct {
 	Profile  string `json:"profile"`
 	Workers  int    `json:"workers,omitempty"`
@@ -194,16 +181,15 @@ func loadProfile(name string) (*ProfileData, error) {
 	return &p, nil
 }
 
-// Orchestrator — управляет процессом freeturnclient.exe
 type Orchestrator struct {
-	appCtx        context.Context
+	appCtx context.Context
+
 	mu            sync.Mutex
+	transitionMu  sync.Mutex
 	engine        *FreeturnEngine
 	prevLogWriter io.Writer
 	onTray        func(connected bool, rx, tx int64, workers int32)
 	userStopped   bool
-	reconnectMu   sync.Mutex
-	reconnecting  bool
 	lw            *wailsLogWriter
 	wakeReconnect chan struct{}
 	lastParams    ConnectParams
@@ -212,11 +198,7 @@ type Orchestrator struct {
 }
 
 func NewOrchestrator(ctx context.Context, onTray func(bool, int64, int64, int32)) *Orchestrator {
-	return &Orchestrator{
-		appCtx:        ctx,
-		onTray:        onTray,
-		wakeReconnect: make(chan struct{}, 1),
-	}
+	return &Orchestrator{appCtx: ctx, onTray: onTray, wakeReconnect: make(chan struct{}, 1)}
 }
 
 func (o *Orchestrator) triggerReconnect() {
@@ -227,26 +209,47 @@ func (o *Orchestrator) triggerReconnect() {
 }
 
 func (o *Orchestrator) Start(p ConnectParams) error {
+	o.transitionMu.Lock()
+	defer o.transitionMu.Unlock()
+
 	o.mu.Lock()
 	if o.engine != nil && o.engine.IsRunning() {
 		o.mu.Unlock()
 		runtime.EventsEmit(o.appCtx, "log", "ERROR", "FreeTurn уже запущен")
 		return fmt.Errorf("already running")
 	}
-	o.userStopped = false
-	o.lastParams = p
+	oldEngine := o.engine
+	o.engine = nil
 	if o.sessionCancel != nil {
 		o.sessionCancel()
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	o.userStopped = false
+	o.lastParams = p
+	parent := o.appCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	o.sessionCtx = ctx
 	o.sessionCancel = cancel
 	o.mu.Unlock()
 
-	if err := o.startEngineOnly(p); err != nil {
-		return err
+	if oldEngine != nil {
+		oldEngine.Stop()
+	}
+	for {
+		select {
+		case <-o.wakeReconnect:
+			continue
+		default:
+		}
+		break
 	}
 
+	if err := o.startEngineOnly(ctx, p); err != nil {
+		cancel()
+		return err
+	}
 	go o.monitorNetwork(ctx, p)
 	return nil
 }
@@ -257,16 +260,15 @@ func (o *Orchestrator) LastParams() ConnectParams {
 	return o.lastParams
 }
 
-func (o *Orchestrator) startEngineOnly(p ConnectParams) error {
+func (o *Orchestrator) startEngineOnly(ctx context.Context, p ConnectParams) error {
 	runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("Загрузка профиля: %s (path: %s)", p.Profile, profilePath(p.Profile)))
 	prof, err := loadProfile(p.Profile)
 	if err != nil {
 		runtime.EventsEmit(o.appCtx, "log", "ERROR", fmt.Sprintf("Ошибка загрузки профиля: %v", err))
 		return err
 	}
-	runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("Профиль загружен: peer=%s transport=%s obf=%s wg_len=%d", prof.PeerAddr, prof.Transport, prof.Obf, len(prof.WGConfig)))
+	runtime.EventsEmit(o.appCtx, "log", "INFO", fmt.Sprintf("Профиль загружен: peer=%s transport=%s mode=%s obf=%s wg_len=%d", prof.PeerAddr, prof.Transport, prof.Mode, prof.Obf, len(prof.WGConfig)))
 
-	// Перехватываем стандартный логгер
 	o.mu.Lock()
 	if _, already := log.Writer().(*wailsLogWriter); !already {
 		o.prevLogWriter = log.Writer()
@@ -279,18 +281,18 @@ func (o *Orchestrator) startEngineOnly(p ConnectParams) error {
 	log.SetOutput(o.lw)
 	o.mu.Unlock()
 
-	engine := NewFreeturnEngine(o.appCtx, o.onTray, func(err error) {
+	engine := NewFreeturnEngine(ctx, o.onTray, func(err error) {
+		runtime.EventsEmit(o.appCtx, "log", "WARN", fmt.Sprintf("[Auto-Reconnect] backend завершился: %v", err))
 		o.triggerReconnect()
 	})
-	err = engine.Start(p, prof)
-	if err != nil {
+	if err := engine.Start(p, prof); err != nil {
 		runtime.EventsEmit(o.appCtx, "log", "ERROR", fmt.Sprintf("Ошибка запуска FreeTurn: %v", err))
 		o.stopLogWriter()
 		return err
 	}
 
 	o.mu.Lock()
-	if o.userStopped {
+	if o.userStopped || ctx.Err() != nil {
 		o.mu.Unlock()
 		engine.Stop()
 		o.stopLogWriter()
@@ -308,111 +310,127 @@ func (o *Orchestrator) stopLogWriter() {
 }
 
 func (o *Orchestrator) stopLogWriterLocked() {
-	if o.lw != nil {
-		select {
-		case <-o.lw.stop:
-		default:
-			close(o.lw.stop)
-		}
-		if o.lw.file != nil {
-			o.lw.file.Close()
-		}
-		o.lw = nil
-	}
 	if o.prevLogWriter != nil {
 		log.SetOutput(o.prevLogWriter)
 	}
+	lw := o.lw
+	o.lw = nil
+	if lw == nil {
+		return
+	}
+	select {
+	case <-lw.stop:
+	default:
+		close(lw.stop)
+	}
+	lw.mu.Lock()
+	if lw.file != nil {
+		_ = lw.file.Close()
+		lw.file = nil
+	}
+	lw.mu.Unlock()
 }
 
 func (o *Orchestrator) Stop() {
+	o.transitionMu.Lock()
+	defer o.transitionMu.Unlock()
+
 	o.mu.Lock()
 	o.userStopped = true
 	if o.sessionCancel != nil {
 		o.sessionCancel()
 	}
 	engine := o.engine
+	o.engine = nil
 	o.mu.Unlock()
-	
+
 	if engine != nil {
 		engine.Stop()
 	}
-	
 	o.stopLogWriter()
 }
 
 func (o *Orchestrator) IsRunning() bool {
 	o.mu.Lock()
-	defer o.mu.Unlock()
-	return o.engine != nil && o.engine.IsRunning()
+	engine := o.engine
+	o.mu.Unlock()
+	return engine != nil && engine.IsRunning()
 }
 
 func (o *Orchestrator) monitorNetwork(ctx context.Context, p ConnectParams) {
-	o.reconnectMu.Lock()
-	if o.reconnecting {
-		o.reconnectMu.Unlock()
-		return
-	}
-	o.reconnecting = true
-	o.reconnectMu.Unlock()
-	
-	defer func() {
-		o.reconnectMu.Lock()
-		o.reconnecting = false
-		o.reconnectMu.Unlock()
-	}()
-
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(3 * time.Second):
+		case <-ticker.C:
 		case <-o.wakeReconnect:
 		}
 
 		o.mu.Lock()
 		stopped := o.userStopped
-		engineRunning := o.engine != nil && o.engine.IsRunning()
+		engine := o.engine
 		o.mu.Unlock()
-		if stopped {
+		if stopped || ctx.Err() != nil {
 			return
 		}
+		engineRunning := engine != nil && engine.IsRunning()
+		if !HasNetworkChanged() && engineRunning {
+			continue
+		}
+		if !engineRunning {
+			runtime.EventsEmit(o.appCtx, "log", "WARN", "[Auto-Reconnect] backend остановлен. Переподключение...")
+		} else {
+			runtime.EventsEmit(o.appCtx, "log", "WARN", "Смена сети. Переподключение...")
+		}
+		if !o.reconnect(ctx, p) {
+			return
+		}
+	}
+}
 
-		if HasNetworkChanged() || !engineRunning {
-			if !engineRunning {
-				runtime.EventsEmit(o.appCtx, "log", "WARN", "[Auto-Reconnect] Обнаружена остановка FreeTurn. Подготовка к переподключению...")
-			} else {
-				runtime.EventsEmit(o.appCtx, "log", "WARN", "Смена сети или потеря подключения. Подготовка к переподключению...")
-			}
-			
-			o.mu.Lock()
-			engine := o.engine
-			o.mu.Unlock()
-			if engine != nil {
-				engine.Stop()
-				o.stopLogWriter()
-			}
-			
-			for {
-				time.Sleep(3 * time.Second)
-				o.mu.Lock()
-				stopped = o.userStopped
-				o.mu.Unlock()
-				if stopped {
-					return
-				}
+func (o *Orchestrator) reconnect(ctx context.Context, p ConnectParams) bool {
+	o.transitionMu.Lock()
+	defer o.transitionMu.Unlock()
 
-				if !IsInternetAvailable() {
-					continue // wait until internet is actually available
-				}
+	o.mu.Lock()
+	if o.userStopped || ctx.Err() != nil {
+		o.mu.Unlock()
+		return false
+	}
+	engine := o.engine
+	o.engine = nil
+	o.mu.Unlock()
+	if engine != nil {
+		engine.Stop()
+	}
+	o.stopLogWriter()
 
-				runtime.EventsEmit(o.appCtx, "log", "INFO", "[Auto-Reconnect] Восстановление туннеля...")
-				if err := o.startEngineOnly(p); err == nil {
-					runtime.EventsEmit(o.appCtx, "log", "INFO", "[Auto-Reconnect] Связь успешно восстановлена!")
-					break // exit inner reconnect loop, continue monitoring
-				} else {
-					runtime.EventsEmit(o.appCtx, "log", "WARN", fmt.Sprintf("[Auto-Reconnect] Ошибка восстановления: %v", err))
-				}
-			}
+	for {
+		timer := time.NewTimer(3 * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false
+		case <-timer.C:
+		}
+
+		o.mu.Lock()
+		stopped := o.userStopped
+		o.mu.Unlock()
+		if stopped {
+			return false
+		}
+		if !IsInternetAvailable() {
+			continue
+		}
+		runtime.EventsEmit(o.appCtx, "log", "INFO", "[Auto-Reconnect] Восстановление туннеля...")
+		if err := o.startEngineOnly(ctx, p); err == nil {
+			runtime.EventsEmit(o.appCtx, "log", "INFO", "[Auto-Reconnect] Связь успешно восстановлена!")
+			return true
+		} else {
+			runtime.EventsEmit(o.appCtx, "log", "WARN", fmt.Sprintf("[Auto-Reconnect] Ошибка восстановления: %v", err))
 		}
 	}
 }

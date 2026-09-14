@@ -7,16 +7,39 @@ import (
 	goruntime "runtime"
 )
 
-// getFreeturnPath определяет путь к бинарному исполняемому файлу freeturnclient.
-func getFreeturnPath() string {
-	exeNames := []string{"freeturnclient", "client-windows-amd64", "client"}
+var freeturnExecutableNames = []string{
+	"freeturnclient",
+	"client-windows-amd64",
+	"client",
+}
+
+func freeturnCandidateNames() []string {
 	if goruntime.GOOS == "windows" {
-		exeNames = []string{"freeturnclient.exe", "client-windows-amd64.exe", "client.exe", "freeturnclient", "client-windows-amd64"}
+		return []string{
+			"freeturnclient.exe",
+			"client-windows-amd64.exe",
+			"client.exe",
+			"freeturnclient",
+			"client-windows-amd64",
+			"client",
+		}
 	}
+	return append([]string(nil), freeturnExecutableNames...)
+}
+
+// freeturnBypassProcessNames returns every executable basename that getFreeturnPath
+// can select. sing-box uses this list to keep the transport process outside TUN,
+// preventing a routing loop back into 127.0.0.1:9000.
+func freeturnBypassProcessNames() []string {
+	return freeturnCandidateNames()
+}
+
+// getFreeturnPath determines the FreeTurn client executable path.
+func getFreeturnPath() string {
 	exe, _ := os.Executable()
 	dir := filepath.Dir(exe)
 
-	for _, exeName := range exeNames {
+	for _, exeName := range freeturnCandidateNames() {
 		path1 := filepath.Join(dir, "assets", "freeturn", exeName)
 		if _, err := os.Stat(path1); err == nil {
 			return path1
