@@ -74,6 +74,11 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if err != nil {
 		return fmt.Errorf("FreeTurn mode: %w", err)
 	}
+	transport := prof.Transport
+	if transport == "" {
+		transport = "tcp"
+	}
+	runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("[FT] relay mode=%s, TURN transport=%s, local=%s:9000", mode, transport, freeTurnHost))
 
 	// Generate and validate sing-box before spending time establishing FreeTurn.
 	cfgBytes, err := BuildSingboxConfig(prof, p)
@@ -102,6 +107,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if err := singboxCheck(sbPath, e.sbCfgPath); err != nil {
 		return fmt.Errorf("невалидный sing-box конфиг: %w", err)
 	}
+	runtime.EventsEmit(e.appCtx, "log", "INFO", "[SB] sing-box check OK; ожидаем готовность FreeTurn")
 
 	exePath := getFreeturnPath()
 	if st, err := os.Stat(exePath); err != nil || st.IsDir() {
@@ -176,7 +182,7 @@ func buildFreeTurnArgs(p ConnectParams, prof *ProfileData, mode string) []string
 	}
 	args = append(args, "-n", fmt.Sprintf("%d", workers))
 
-	transport := prof.Transport
+	transport = prof.Transport
 	if transport == "" {
 		transport = "tcp"
 	}
