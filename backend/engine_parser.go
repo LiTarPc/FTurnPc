@@ -55,37 +55,90 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 	}
 }
 
+// trackFreeTurnStream keeps the UI stream counter in sync with both FreeTurn
+// relay implementations. UDP mode logs [STREAM N], while TCP mode uses
+// [session N].
 func (e *FreeturnEngine) trackFreeTurnStream(line string) {
-	idx := strings.Index(line, "[STREAM ")
-	if idx == -1 {
-		return
-	}
-	sub := line[idx+8:]
-	end := strings.Index(sub, "]")
-	if end == -1 {
-		return
-	}
-	streamID := strings.TrimSpace(sub[:end])
+	streamID := freeTurnStreamID(line)
 	if streamID == "" {
 		return
 	}
+
+	lower := strings.ToLower(line)
+	active := strings.Contains(lower, "turn allocation up") ||
+		strings.Contains(lower, "relayed-address") ||
+		strings.Contains(lower, "established dtls connection") ||
+		strings.Contains(lower, "stream is ready") ||
+		strings.Contains(lower, "] connected (active:")
+	inactive := strings.Contains(lower, "turn allocation released") ||
+		strings.Contains(lower, "] disconnected") ||
+		strings.Contains(lower, "closed") ||
+		strings.Contains(lower, "failed")
+
+	if !active && !inactive {
+		return
+	}
+
 	e.muStreams.Lock()
 	defer e.muStreams.Unlock()
 	if e.activeStreams == nil {
 		e.activeStreams = make(map[string]bool)
 	}
-	if strings.Contains(line, "relayed-address") || strings.Contains(line, "Established") || strings.Contains(line, "stream is ready") {
+	if active {
 		e.activeStreams[streamID] = true
 	}
-	if strings.Contains(line, "closed") || strings.Contains(line, "failed") {
+	if inactive {
 		delete(e.activeStreams, streamID)
 	}
 }
 
+func freeTurnStreamID(line string) string {
+	lower := strings.ToLower(line)
+	for _, prefix := range []string{"[stream ", "[session "} {
+		idx := strings.Index(lower, prefix)
+		if idx == -1 {
+			continue
+		}
+		sub := line[idx+len(prefix):]
+		end := strings.Index(sub, "]")
+		if end == -1 {
+			continue
+		}
+		streamID := strings.TrimSpace(sub[:end])
+		if streamID != "" {
+			return streamID
+		}
+	}
+	return ""
+}
+
 var activeConnectionCountRE = regexp.MustCompile(`(?i)activeConnectionCount[^0-9]+([0-9]+)`)
 
+// isFreeTurnReadyLine recognises stable INFO-level readiness signals from both
+// FreeTurn relay modes and older client versions.
+//
+// "Established DTLS connection" is currently a Debugf line in FreeTurn UDP
+// mode, so a normal production client never prints it unless -debug is enabled.
+// "TURN allocation up" is the first reliable INFO-level UDP signal. The local
+// UDP listener is already bound by then, so sing-box may safely start sending
+// datagrams while DTLS finishes establishing.
 func isFreeTurnReadyLine(line string) bool {
-	if strings.Contains(line, "Established DTLS connection") || strings.Contains(line, "stream is ready") {
+	lower := strings.ToLower(line)
+
+	// UDP mode: WireGuard / Hysteria2 / TUIC.
+	if strings.Contains(lower, "turn allocation up") {
+		return true
+	}
+
+	// TCP mode: VLESS / VMess / Trojan / Shadowsocks. Wait for a real pooled
+	// session rather than merely for the local TCP listener to open.
+	if strings.Contains(lower, "tcp mode: pool serving traffic") ||
+		(strings.Contains(lower, "[session ") && strings.Contains(lower, "] connected (active:")) {
+		return true
+	}
+
+	// Compatibility with older/debug FreeTurn builds.
+	if strings.Contains(lower, "established dtls connection") || strings.Contains(lower, "stream is ready") {
 		return true
 	}
 	match := activeConnectionCountRE.FindStringSubmatch(line)
@@ -93,7 +146,7 @@ func isFreeTurnReadyLine(line string) bool {
 		return false
 	}
 	count, err := strconv.Atoi(match[1])
-	return err == nil && count >= 0
+	return err == nil && count >= 1
 }
 
 func (e *FreeturnEngine) startSingboxWhenReady() {
@@ -105,6 +158,10 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 	e.sbStarting = true
 	cfgPath := e.sbCfgPath
 	e.mu.Unlock()
+
+	// This INFO line makes the transport -> TUN hand-off visible in the UI and
+	// makes future startup failures much easier to diagnose from user logs.
+	runtime.EventsEmit(e.appCtx, "log", "INFO", "[FT] Транспорт FreeTurn готов; запускаем sing-box...")
 
 	e.wg.Add(1)
 	go func() {
