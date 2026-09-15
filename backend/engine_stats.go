@@ -1,23 +1,21 @@
 package backend
 
 import (
-	goruntime "runtime"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // trafficCounter converts an absolute interface byte counter into bytes used
-// since this stats loop started. This is important on Windows because the TUN
-// adapter can survive between sessions and GetIfEntry reports lifetime adapter
-// counters rather than per-connection counters.
+// since this stats loop started. Interface counters can survive between user
+// sessions, so the first successful sample is always treated as the baseline.
 type trafficCounter struct {
 	initialized bool
 	last        int64
 	total       int64
 }
 
-func (c *trafficCounter) update(raw int64, windows32 bool) int64 {
+func (c *trafficCounter) update(raw int64) int64 {
 	if raw < 0 {
 		return c.total
 	}
@@ -28,16 +26,13 @@ func (c *trafficCounter) update(raw int64, windows32 bool) int64 {
 	}
 
 	var delta int64
-	switch {
-	case raw >= c.last:
+	if raw >= c.last {
 		delta = raw - c.last
-	case windows32 && c.last > 0x80000000 && raw < 0x40000000:
-		// Legacy GetIfEntry exposes 32-bit octet counters. Handle a real
-		// uint32 wrap without turning it into a multi-gigabyte UI spike.
-		delta = (1 << 32) - c.last + raw
-	default:
-		// The interface counter was reset/recreated. Keep the accumulated
-		// session total and count only bytes observed after the reset.
+	} else {
+		// The TUN adapter was reset/recreated and its absolute counter restarted.
+		// Keep the accumulated session total and count only bytes observed after
+		// the reset. Windows uses GetIfEntry2 64-bit octet counters, so there is
+		// no 32-bit wraparound to compensate for here.
 		delta = raw
 	}
 
@@ -48,7 +43,8 @@ func (c *trafficCounter) update(raw int64, windows32 bool) int64 {
 	return c.total
 }
 
-// startStatsLoop polls the TUN byte counters and active FreeTurn streams.
+// startStatsLoop polls byte counters from the fturn-tun adapter and reports
+// traffic that crossed that interface during the current user connection.
 func (e *FreeturnEngine) startStatsLoop() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -61,7 +57,6 @@ func (e *FreeturnEngine) startStatsLoop() {
 		defer t.Stop()
 
 		var rxCounter, txCounter trafficCounter
-		windows32 := goruntime.GOOS == "windows"
 
 		for {
 			select {
@@ -71,8 +66,8 @@ func (e *FreeturnEngine) startStatsLoop() {
 					continue
 				}
 
-				sessionRx := rxCounter.update(rx, windows32)
-				sessionTx := txCounter.update(tx, windows32)
+				sessionRx := rxCounter.update(rx)
+				sessionTx := txCounter.update(tx)
 
 				e.muStreams.Lock()
 				activeCount := len(e.activeStreams)
