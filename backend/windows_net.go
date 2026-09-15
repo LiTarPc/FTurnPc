@@ -8,35 +8,9 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
-)
 
-// MIB_IFROW mirrors the legacy GetIfEntry row used for lightweight byte stats.
-type MIB_IFROW struct {
-	wszName           [256]uint16
-	dwIndex           uint32
-	dwType            uint32
-	dwMtu             uint32
-	dwSpeed           uint32
-	dwPhysAddrLen     uint32
-	bPhysAddr         [8]byte
-	dwAdminStatus     uint32
-	dwOperStatus      uint32
-	dwLastChange      uint32
-	dwInOctets        uint32
-	dwInUcastPkts     uint32
-	dwInNUcastPkts    uint32
-	dwInDiscards      uint32
-	dwInErrors        uint32
-	dwInUnknownProtos uint32
-	dwOutOctets       uint32
-	dwOutUcastPkts    uint32
-	dwOutNUcastPkts   uint32
-	dwOutDiscards     uint32
-	dwOutErrors       uint32
-	dwOutQLen         uint32
-	dwDescrLen        uint32
-	bDescr            [256]byte
-}
+	xwindows "golang.org/x/sys/windows"
+)
 
 type MIB_IPFORWARDROW struct {
 	DwForwardDest      uint32
@@ -57,7 +31,6 @@ type MIB_IPFORWARDROW struct {
 
 var (
 	iphlpapi              = syscall.NewLazyDLL("iphlpapi.dll")
-	procGetIfEntry        = iphlpapi.NewProc("GetIfEntry")
 	procGetIpForwardTable = iphlpapi.NewProc("GetIpForwardTable")
 )
 
@@ -106,17 +79,21 @@ func GetExistingRoutesFast() map[string]bool {
 	return existing
 }
 
+// getInterfaceBytes reads the actual 64-bit byte counters of fturn-tun.
+// The old GetIfEntry/MIB_IFROW API exposed only 32-bit dwInOctets/dwOutOctets,
+// which wrapped around under sustained traffic and produced bogus totals/speeds.
 func getInterfaceBytes(ifaceName string) (rx, tx int64, err error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
 		return 0, 0, err
 	}
-	row := MIB_IFROW{dwIndex: uint32(iface.Index)}
-	ret, _, _ := procGetIfEntry.Call(uintptr(unsafe.Pointer(&row)))
-	if ret != 0 {
-		return 0, 0, fmt.Errorf("GetIfEntry returned error: %d", ret)
+
+	row := xwindows.MibIfRow2{InterfaceIndex: uint32(iface.Index)}
+	if err := xwindows.GetIfEntry2Ex(xwindows.MibIfEntryNormal, &row); err != nil {
+		return 0, 0, fmt.Errorf("GetIfEntry2Ex(%s): %w", ifaceName, err)
 	}
-	return int64(row.dwInOctets), int64(row.dwOutOctets), nil
+
+	return int64(row.InOctets), int64(row.OutOctets), nil
 }
 
 type defaultRouteSnapshot struct {
