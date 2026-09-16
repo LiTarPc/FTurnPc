@@ -5,6 +5,7 @@ package backend
 import (
 	"fmt"
 	"log"
+	"net"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -90,6 +91,21 @@ func signalStop(cmd *exec.Cmd) error {
 	)
 	if r == 0 {
 		return fmt.Errorf("GenerateConsoleCtrlEvent: %w", err)
+	}
+	return nil
+}
+
+// cleanupTurnHostRoute is only a safety net for FreeTurn -routes. On a normal
+// shutdown the core deletes its own route. We call this only for IPs observed in
+// FreeTurn's route-manager logs and not subsequently reported as removed/failed.
+func cleanupTurnHostRoute(rawIP string) error {
+	ip := net.ParseIP(rawIP)
+	if ip == nil || ip.To4() == nil {
+		return fmt.Errorf("invalid IPv4 TURN route %q", rawIP)
+	}
+	cmd := exec.Command("route", "delete", ip.String(), "mask", "255.255.255.255") //nolint:gosec,noctx
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("route delete %s/32: %w (%s)", ip.String(), err, string(out))
 	}
 	return nil
 }
