@@ -8,9 +8,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+const freeTurnStopTimeout = 4 * time.Second
 
 // FreeturnEngine manages freeturnclient and the dependent sing-box TUN process.
 type FreeturnEngine struct {
@@ -36,6 +39,9 @@ type FreeturnEngine struct {
 	activeStreams     map[string]bool
 	statsStop         chan struct{}
 	exitChan          chan struct{}
+
+	turnRoutesMu sync.Mutex
+	turnRoutes   map[string]struct{}
 }
 
 func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int32), onUnexpectedExit func(err error)) *FreeturnEngine {
@@ -69,6 +75,9 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.muStreams.Lock()
 	e.activeStreams = make(map[string]bool)
 	e.muStreams.Unlock()
+	e.turnRoutesMu.Lock()
+	e.turnRoutes = make(map[string]struct{})
+	e.turnRoutesMu.Unlock()
 
 	mode, err := ResolveFreeTurnMode(prof)
 	if err != nil {
@@ -186,6 +195,10 @@ func buildFreeTurnArgs(p ConnectParams, prof *ProfileData, mode string) []string
 		"-listen", freeTurnHost + ":9000",
 		"-peer", prof.PeerAddr,
 		"-mode", mode,
+		// FreeTurn already knows every dynamically selected TURN server. Let it
+		// install /32 host routes through the physical default gateway before the
+		// sing-box TUN comes up so TURN transport never depends on fturn-tun.
+		"-routes",
 	}
 	if prof.Links != "" {
 		args = append(args, "-links", prof.Links)
@@ -286,6 +299,11 @@ func (e *FreeturnEngine) waitFreeTurn(cmd *exec.Cmd, exitChan chan struct{}) {
 	e.sbTun.Stop()
 	e.wg.Wait()
 
+	// FreeTurn removes its own -routes entries on a clean shutdown. If it was
+	// killed/crashed, any routes still remembered from its logs are removed here
+	// as a best-effort safety net before an auto-reconnect starts a new process.
+	e.cleanupTrackedTurnRoutes()
+
 	emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
 	if stopped {
 		runtime.EventsEmit(e.appCtx, "state_changed", "disconnected", "")
@@ -329,6 +347,8 @@ func (e *FreeturnEngine) fail(err error) {
 	cmd := e.cmd
 	e.mu.Unlock()
 
+	// This is a failure path, so tear down immediately. waitFreeTurn performs the
+	// host-route fallback cleanup after the process and log readers are gone.
 	if cancel != nil {
 		cancel()
 	}
@@ -351,18 +371,82 @@ func (e *FreeturnEngine) Stop() {
 	e.stopStatsLoopLocked()
 	e.mu.Unlock()
 
-	if cancel != nil {
+	if cmd != nil {
+		e.stopFreeTurnProcess(cmd, cancel, exitChan)
+	} else if cancel != nil {
 		cancel()
 	}
-	if cmd != nil && cmd.Process != nil {
-		_ = cmd.Process.Kill()
-	}
-	if exitChan != nil {
-		<-exitChan
-	} else {
+
+	if exitChan == nil {
+		e.cleanupTrackedTurnRoutes()
 		e.mu.Lock()
 		e.cleanupSingboxConfigLocked()
 		e.mu.Unlock()
+	}
+}
+
+func (e *FreeturnEngine) stopFreeTurnProcess(cmd *exec.Cmd, cancel context.CancelFunc, done <-chan struct{}) {
+	if cmd == nil {
+		if cancel != nil {
+			cancel()
+		}
+		return
+	}
+
+	emitSessionLog(e.appCtx, "INFO", "[FT] Остановка FreeTurn с очисткой TURN routes...")
+	if err := signalStop(cmd); err != nil {
+		emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] graceful stop недоступен: %v; завершаем процесс", err))
+		if cancel != nil {
+			cancel()
+		}
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	} else if done != nil {
+		timer := time.NewTimer(freeTurnStopTimeout)
+		select {
+		case <-done:
+			timer.Stop()
+			return
+		case <-timer.C:
+			emitSessionLog(e.appCtx, "WARN", "[FT] graceful stop timeout; принудительное завершение")
+			if cancel != nil {
+				cancel()
+			}
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+		}
+	} else {
+		// A started engine normally always has an exit channel. Keep the fallback
+		// bounded if state is partially initialized.
+		if cancel != nil {
+			cancel()
+		}
+	}
+
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			emitSessionLog(e.appCtx, "WARN", "[FT] процесс не подтвердил завершение после Kill")
+		}
+	}
+}
+
+func (e *FreeturnEngine) cleanupTrackedTurnRoutes() {
+	e.turnRoutesMu.Lock()
+	ips := make([]string, 0, len(e.turnRoutes))
+	for ip := range e.turnRoutes {
+		ips = append(ips, ip)
+	}
+	e.turnRoutes = make(map[string]struct{})
+	e.turnRoutesMu.Unlock()
+
+	for _, ip := range ips {
+		if err := cleanupTurnHostRoute(ip); err != nil {
+			emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] failed to cleanup TURN route %s/32: %v", ip, err))
+		}
 	}
 }
 
