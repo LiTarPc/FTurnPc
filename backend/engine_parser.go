@@ -5,12 +5,19 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+var (
+	turnRouteEnsureRE = regexp.MustCompile(`(?i)Ensuring route to ([0-9.]+)/32(?:\s|$)`)
+	turnRouteRemoveRE = regexp.MustCompile(`(?i)Removing route to ([0-9.]+)/32(?:\s|$)`)
+	turnRouteFailedRE = regexp.MustCompile(`(?i)failed to add route to ([0-9.]+)(?::|\s|$)`)
 )
 
 // parseLogs reads FreeTurn output, tracks streams and starts sing-box after the
@@ -24,6 +31,7 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		e.trackFreeTurnStream(line)
+		e.trackTurnRoute(line)
 
 		if strings.Contains(line, "all VK credentials failed") {
 			emitSessionLog(e.appCtx, "WARN", "[SB] Ошибка получения токена VK для потока. Ожидание автоматической повторной попытки...")
@@ -56,6 +64,44 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 	if err := scanner.Err(); err != nil {
 		log.Printf("[FT] Ошибка чтения логов FreeTurn: %v", err)
 	}
+}
+
+// trackTurnRoute mirrors only routes that FreeTurn says it is managing. The
+// list is a fallback for crash/forced-kill cleanup; on a normal shutdown
+// FreeTurn removes its own routes and the corresponding log line drops them
+// from this set before waitFreeTurn runs the fallback cleanup.
+func (e *FreeturnEngine) trackTurnRoute(line string) {
+	if match := turnRouteEnsureRE.FindStringSubmatch(line); len(match) == 2 {
+		if ip := net.ParseIP(match[1]); ip != nil && ip.To4() != nil {
+			e.turnRoutesMu.Lock()
+			if e.turnRoutes == nil {
+				e.turnRoutes = make(map[string]struct{})
+			}
+			e.turnRoutes[ip.String()] = struct{}{}
+			e.turnRoutesMu.Unlock()
+		}
+		return
+	}
+
+	// If route add failed (for example because an identical route already
+	// existed), do not let fallback cleanup delete a route we did not create.
+	if match := turnRouteFailedRE.FindStringSubmatch(line); len(match) == 2 {
+		e.forgetTurnRoute(match[1])
+		return
+	}
+	if match := turnRouteRemoveRE.FindStringSubmatch(line); len(match) == 2 {
+		e.forgetTurnRoute(match[1])
+	}
+}
+
+func (e *FreeturnEngine) forgetTurnRoute(rawIP string) {
+	ip := net.ParseIP(rawIP)
+	if ip == nil || ip.To4() == nil {
+		return
+	}
+	e.turnRoutesMu.Lock()
+	delete(e.turnRoutes, ip.String())
+	e.turnRoutesMu.Unlock()
 }
 
 // trackFreeTurnStream keeps the UI stream counter in sync with both FreeTurn
