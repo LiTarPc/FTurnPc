@@ -16,7 +16,6 @@ import (
 
 var (
 	turnRouteEnsureRE = regexp.MustCompile(`(?i)Ensuring route to ([0-9.]+)/32(?:\s|$)`)
-	turnRouteRemoveRE = regexp.MustCompile(`(?i)Removing route to ([0-9.]+)/32(?:\s|$)`)
 	turnRouteFailedRE = regexp.MustCompile(`(?i)failed to add route to ([0-9.]+)(?::|\s|$)`)
 )
 
@@ -66,10 +65,11 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 	}
 }
 
-// trackTurnRoute mirrors only routes that FreeTurn says it is managing. The
-// list is a fallback for crash/forced-kill cleanup; on a normal shutdown
-// FreeTurn removes its own routes and the corresponding log line drops them
-// from this set before waitFreeTurn runs the fallback cleanup.
+// trackTurnRoute mirrors routes that FreeTurn says it intends to manage. We
+// keep a route in this fallback set until process exit, even when FreeTurn logs
+// its normal "Removing route" line: that line is emitted before route deletion,
+// so deletion can still fail. cleanupTrackedTurnRoutes verifies whether a route
+// still exists before attempting the final cleanup.
 func (e *FreeturnEngine) trackTurnRoute(line string) {
 	if match := turnRouteEnsureRE.FindStringSubmatch(line); len(match) == 2 {
 		if ip := net.ParseIP(match[1]); ip != nil && ip.To4() != nil {
@@ -86,10 +86,6 @@ func (e *FreeturnEngine) trackTurnRoute(line string) {
 	// If route add failed (for example because an identical route already
 	// existed), do not let fallback cleanup delete a route we did not create.
 	if match := turnRouteFailedRE.FindStringSubmatch(line); len(match) == 2 {
-		e.forgetTurnRoute(match[1])
-		return
-	}
-	if match := turnRouteRemoveRE.FindStringSubmatch(line); len(match) == 2 {
 		e.forgetTurnRoute(match[1])
 	}
 }
