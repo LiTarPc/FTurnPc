@@ -95,14 +95,33 @@ func signalStop(cmd *exec.Cmd) error {
 	return nil
 }
 
-// cleanupTurnHostRoute is only a safety net for FreeTurn -routes. On a normal
-// shutdown the core deletes its own route. We call this only for IPs observed in
-// FreeTurn's route-manager logs and not subsequently reported as removed/failed.
+// cleanupTurnHostRoute is only a safety net for FreeTurn -routes. Before using
+// route.exe, verify through IP Helper that exactly one matching /32 still
+// exists. This makes normal graceful cleanup a no-op here and avoids deleting
+// an ambiguous pre-existing route if multiple entries share the destination.
 func cleanupTurnHostRoute(rawIP string) error {
 	ip := net.ParseIP(rawIP)
 	if ip == nil || ip.To4() == nil {
 		return fmt.Errorf("invalid IPv4 TURN route %q", rawIP)
 	}
+
+	matches := 0
+	for _, row := range getIPv4RouteRows() {
+		if !dwordIPv4(row.DwForwardDest).Equal(ip) {
+			continue
+		}
+		if !dwordIPv4(row.DwForwardMask).Equal(net.IPv4(255, 255, 255, 255)) {
+			continue
+		}
+		matches++
+	}
+	if matches == 0 {
+		return nil
+	}
+	if matches > 1 {
+		return fmt.Errorf("refusing to delete ambiguous TURN route %s/32: %d matching routes", ip.String(), matches)
+	}
+
 	cmd := exec.Command("route", "delete", ip.String(), "mask", "255.255.255.255") //nolint:gosec,noctx
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("route delete %s/32: %w (%s)", ip.String(), err, string(out))
