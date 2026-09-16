@@ -16,7 +16,7 @@ func TestBuildFreeTurnArgsEnablesRoutes(t *testing.T) {
 	}
 }
 
-func TestTrackTurnRouteLifecycle(t *testing.T) {
+func TestTrackTurnRouteKeepsRouteThroughRemovalLog(t *testing.T) {
 	e := &FreeturnEngine{turnRoutes: make(map[string]struct{})}
 
 	e.trackTurnRoute("2026/09/16 12:00:00 Ensuring route to 193.203.43.16/32 via 10.0.0.1")
@@ -24,9 +24,12 @@ func TestTrackTurnRouteLifecycle(t *testing.T) {
 		t.Fatal("TURN route was not tracked")
 	}
 
+	// FreeTurn logs this before executing route deletion. Keep the route tracked
+	// until process exit so fallback cleanup can verify whether deletion actually
+	// succeeded.
 	e.trackTurnRoute("2026/09/16 12:00:01 Removing route to 193.203.43.16/32")
-	if _, ok := e.turnRoutes["193.203.43.16"]; ok {
-		t.Fatal("TURN route remained tracked after normal removal")
+	if _, ok := e.turnRoutes["193.203.43.16"]; !ok {
+		t.Fatal("TURN route was forgotten before deletion could be verified")
 	}
 }
 
