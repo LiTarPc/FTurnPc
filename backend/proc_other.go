@@ -21,3 +21,7 @@ func signalStop(cmd *exec.Cmd) error {
 	// helper descendants cannot survive the parent.
 	return syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
 }
+
+// FreeTurn -routes owns route creation/removal on non-Windows platforms too.
+// FTurnPc's extra crash-cleanup is Windows-specific for now.
+func cleanupTurnHostRoute(_ string) error { return nil }
