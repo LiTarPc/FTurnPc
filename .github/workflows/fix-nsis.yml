@@ -1,0 +1,119 @@
+name: Fix NSIS Installer
+
+on:
+  push:
+    branches:
+      - fix/singbox-freeturn-readiness
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fix-nsis-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SINGBOX_VERSION: "1.14.0"
+
+jobs:
+  windows-nsis:
+    name: Windows x64 NSIS
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Download FreeTurn client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "build/bin" | Out-Null
+          $url = "https://github.com/LiTarPc/fturn-core/releases/latest/download/client-windows-amd64.exe"
+          curl.exe -fL --retry 3 --retry-delay 2 $url -o "build/bin/client-windows-amd64.exe"
+          if ($LASTEXITCODE -ne 0) { throw "FreeTurn download failed with exit code $LASTEXITCODE" }
+          $file = Get-Item "build/bin/client-windows-amd64.exe"
+          if ($file.Length -lt 1MB) { throw "Downloaded FreeTurn client is unexpectedly small: $($file.Length) bytes" }
+          Write-Host "FreeTurn client: $($file.Length) bytes"
+
+      - name: Download sing-box
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = $env:SINGBOX_VERSION
+          $archive = Join-Path $env:RUNNER_TEMP "sing-box-$version-windows-amd64.zip"
+          $url = "https://github.com/SagerNet/sing-box/releases/download/v$version/sing-box-$version-windows-amd64.zip"
+          curl.exe -fL --retry 3 --retry-delay 2 $url -o $archive
+          if ($LASTEXITCODE -ne 0) { throw "sing-box download failed with exit code $LASTEXITCODE" }
+          Expand-Archive -Path $archive -DestinationPath . -Force
+          $exe = "sing-box-$version-windows-amd64/sing-box.exe"
+          if (-not (Test-Path $exe)) { throw "sing-box.exe not found after extraction: $exe" }
+          & $exe version
+          if ($LASTEXITCODE -ne 0) { throw "sing-box version check failed" }
+
+      - name: Run backend tests
+        shell: pwsh
+        run: go test ./backend
+
+      - name: Build Wails NSIS installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          wails build -platform windows/amd64 -nsis
+          if ($LASTEXITCODE -ne 0) { throw "wails NSIS build failed with exit code $LASTEXITCODE" }
+          Get-ChildItem "build/bin" | Format-Table Name,Length,LastWriteTime
+
+      - name: Prepare installer artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = Get-ChildItem "build/bin" -Filter "*-installer.exe" -File |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer was not produced in build/bin" }
+
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          $shortSha = "${{ github.sha }}".Substring(0, 7)
+          $targetName = "FTurnPc-singbox-fix-$shortSha-installer.exe"
+          $target = Join-Path "dist" $targetName
+          Copy-Item $installer.FullName $target
+
+          $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $targetName" | Set-Content -Path "$target.sha256.txt" -Encoding ascii
+          Write-Host "Installer: $target"
+          Write-Host "SHA256:   $hash"
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: FTurnPc-singbox-fix-nsis-${{ github.run_number }}
+          path: |
+            dist/FTurnPc-singbox-fix-*-installer.exe
+            dist/FTurnPc-singbox-fix-*-installer.exe.sha256.txt
+          if-no-files-found: error
+          retention-days: 14
