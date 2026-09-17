@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: fix-nsis-${{ github.ref }}
@@ -15,6 +15,7 @@ concurrency:
 
 env:
   SINGBOX_VERSION: "1.14.0"
+  PREVIEW_TAG: "singbox-fix-latest"
 
 jobs:
   windows-nsis:
@@ -25,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -98,8 +101,7 @@ jobs:
           if (-not $installer) { throw "NSIS installer was not produced in build/bin" }
 
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          $shortSha = "${{ github.sha }}".Substring(0, 7)
-          $targetName = "FTurnPc-singbox-fix-$shortSha-installer.exe"
+          $targetName = "FTurnPc-singbox-fix-amd64-installer.exe"
           $target = Join-Path "dist" $targetName
           Copy-Item $installer.FullName $target
 
@@ -108,12 +110,43 @@ jobs:
           Write-Host "Installer: $target"
           Write-Host "SHA256:   $hash"
 
-      - name: Upload NSIS installer
+      - name: Upload NSIS installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: FTurnPc-singbox-fix-nsis-${{ github.run_number }}
           path: |
-            dist/FTurnPc-singbox-fix-*-installer.exe
-            dist/FTurnPc-singbox-fix-*-installer.exe.sha256.txt
+            dist/FTurnPc-singbox-fix-amd64-installer.exe
+            dist/FTurnPc-singbox-fix-amd64-installer.exe.sha256.txt
           if-no-files-found: error
           retention-days: 14
+
+      - name: Move rolling prerelease tag
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f $env:PREVIEW_TAG $env:GITHUB_SHA
+          git push origin "refs/tags/$env:PREVIEW_TAG" --force
+
+      - name: Publish rolling prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.PREVIEW_TAG }}
+          name: "Sing-box Fix Preview"
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          body: |
+            Автоматическая preview-сборка ветки `fix/singbox-freeturn-readiness`.
+
+            - Commit: `${{ github.sha }}`
+            - sing-box: `${{ env.SINGBOX_VERSION }}`
+            - Windows: x64
+            - Installer: NSIS
+
+            Этот prerelease автоматически обновляется при каждом push в fix-ветку.
+          files: |
+            dist/FTurnPc-singbox-fix-amd64-installer.exe
+            dist/FTurnPc-singbox-fix-amd64-installer.exe.sha256.txt
