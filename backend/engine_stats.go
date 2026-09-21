@@ -15,6 +15,21 @@ type trafficCounter struct {
 	total       int64
 }
 
+type trafficTotals struct {
+	rx trafficCounter
+	tx trafficCounter
+}
+
+func newTrafficTotals(rx, tx int64) trafficTotals {
+	var totals trafficTotals
+	totals.update(rx, tx)
+	return totals
+}
+
+func (t *trafficTotals) update(rx, tx int64) (sessionRx, sessionTx int64) {
+	return t.rx.update(rx), t.tx.update(tx)
+}
+
 func (c *trafficCounter) update(raw int64) int64 {
 	if raw < 0 {
 		return c.total
@@ -51,12 +66,19 @@ func (e *FreeturnEngine) startStatsLoop() {
 	if e.statsStop != nil {
 		return
 	}
+
+	// Capture the baseline before the first one-second tick. Waiting for the
+	// ticker here used to discard every byte transferred during the first
+	// second of a connection.
+	initialRx, initialTx, initialErr := getInterfaceBytes(singTunName)
+	var totals trafficTotals
+	if initialErr == nil {
+		totals = newTrafficTotals(initialRx, initialTx)
+	}
 	e.statsStop = make(chan struct{})
-	go func(stop chan struct{}) {
+	go func(stop chan struct{}, totals trafficTotals) {
 		t := time.NewTicker(1 * time.Second)
 		defer t.Stop()
-
-		var rxCounter, txCounter trafficCounter
 
 		for {
 			select {
@@ -66,8 +88,7 @@ func (e *FreeturnEngine) startStatsLoop() {
 					continue
 				}
 
-				sessionRx := rxCounter.update(rx)
-				sessionTx := txCounter.update(tx)
+				sessionRx, sessionTx := totals.update(rx, tx)
 
 				e.muStreams.Lock()
 				activeCount := len(e.activeStreams)
@@ -88,7 +109,7 @@ func (e *FreeturnEngine) startStatsLoop() {
 				return
 			}
 		}
-	}(e.statsStop)
+	}(e.statsStop, totals)
 }
 
 func (e *FreeturnEngine) stopStatsLoopLocked() {

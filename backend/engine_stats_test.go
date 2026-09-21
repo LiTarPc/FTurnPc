@@ -2,6 +2,14 @@ package backend
 
 import "testing"
 
+func TestTrafficTotalsCountFirstTickFromImmediateBaseline(t *testing.T) {
+	totals := newTrafficTotals(10_000, 20_000)
+	rx, tx := totals.update(10_750, 21_250)
+	if rx != 750 || tx != 1_250 {
+		t.Fatalf("first tick totals = (%d, %d), want (750, 1250)", rx, tx)
+	}
+}
+
 func TestTrafficCounterSessionBaseline(t *testing.T) {
 	var c trafficCounter
 	if got := c.update(400 * 1024 * 1024); got != 0 {

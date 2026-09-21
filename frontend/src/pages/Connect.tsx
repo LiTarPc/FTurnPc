@@ -69,7 +69,8 @@ export default function Connect() {
       }
     };
 
-    EventsOn('stats', handleStats);
+    const unsubscribe = EventsOn('stats', handleStats);
+    return unsubscribe;
   }, []);
 
   useEffect(() => {

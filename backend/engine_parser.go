@@ -240,12 +240,15 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 		e.sbApplied = true
 		e.mu.Unlock()
 
+		// Establish the traffic baseline before consumers are told that the
+		// tunnel is ready. Otherwise traffic started immediately in response to
+		// the running event can slip in ahead of the baseline.
+		e.startStatsLoop()
 		runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
 		emitSessionLog(e.appCtx, "INFO", "[SB] Туннель активен ✓")
 		if e.onTray != nil {
 			e.onTray(true, 0, 0, 0)
 		}
-		e.startStatsLoop()
 		go e.emitNATInfoAfterDelay()
 	}()
 }
