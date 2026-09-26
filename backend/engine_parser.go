@@ -30,7 +30,11 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		e.trackFreeTurnStream(line)
-		e.trackTurnRoute(line)
+		if uiManagesTurnRoutes() {
+			e.trackManagedTurnServer(line)
+		} else {
+			e.trackTurnRoute(line)
+		}
 
 		if strings.Contains(line, "all VK credentials failed") {
 			emitSessionLog(e.appCtx, "WARN", "[SB] Ошибка получения токена VK для потока. Ожидание автоматической повторной попытки...")
@@ -44,6 +48,9 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 		}
 
 		if isFreeTurnReadyLine(line) {
+			e.mu.Lock()
+			e.ftReady = true
+			e.mu.Unlock()
 			e.startSingboxWhenReady()
 		}
 
@@ -63,6 +70,83 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 	if err := scanner.Err(); err != nil {
 		log.Printf("[FT] Ошибка чтения логов FreeTurn: %v", err)
 	}
+}
+
+// FreeTurn announces TURN candidates before, or at latest when, allocation is
+// complete. Install a physical /32 before sing-box changes the default route.
+func (e *FreeturnEngine) trackManagedTurnServer(line string) {
+	ip := freeTurnServerIP(line)
+	if ip == "" {
+		return
+	}
+	e.turnRoutesMu.Lock()
+	if _, seen := e.turnRoutes[ip]; seen {
+		e.turnRoutesMu.Unlock()
+		return
+	}
+	if time.Since(e.turnRouteFailures[ip]) < 10*time.Second {
+		e.turnRoutesMu.Unlock()
+		return
+	}
+	route, err := addManagedTurnRoute(ip)
+	if route != nil {
+		if e.managedTurnRoutes == nil {
+			e.managedTurnRoutes = make(map[string]managedTurnRoute)
+		}
+		e.managedTurnRoutes[ip] = *route
+	}
+	if err == nil {
+		delete(e.turnRouteFailures, ip)
+		if e.turnRoutes == nil {
+			e.turnRoutes = make(map[string]struct{})
+		}
+		e.turnRoutes[ip] = struct{}{}
+	} else {
+		if e.turnRouteFailures == nil {
+			e.turnRouteFailures = make(map[string]time.Time)
+		}
+		e.turnRouteFailures[ip] = time.Now()
+	}
+	e.turnRoutesMu.Unlock()
+	if err != nil {
+		emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] Маршрут к TURN %s не установлен: %v", ip, err))
+		return
+	}
+	if route != nil {
+		emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[FT] TURN %s/32 через %s (interface %d)", ip, route.gateway, route.ifIndex))
+	}
+	e.mu.Lock()
+	ready := e.ftReady
+	e.mu.Unlock()
+	if ready {
+		e.startSingboxWhenReady()
+	}
+}
+
+func freeTurnServerIP(line string) string {
+	var value string
+	if i := strings.Index(line, "server="); i >= 0 && strings.Contains(strings.ToLower(line), "turn allocation up") {
+		value = line[i+len("server="):]
+	} else if i := strings.Index(line, "TURN server IP:"); i >= 0 {
+		value = line[i+len("TURN server IP:"):]
+	} else if i := strings.Index(strings.ToLower(line), "selected turn:"); i >= 0 {
+		value = line[i+len("selected turn:"):]
+	} else if strings.Contains(line, "Resolved TURN server") || strings.Contains(line, "Resolved STUN server") {
+		if _, after, ok := strings.Cut(line, " to "); ok {
+			value = after
+		}
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value, _, _ = strings.Cut(value, ":")
+	value = strings.Trim(value, " )\"'\r\n\t")
+	ip := net.ParseIP(value)
+	if ip == nil || ip.To4() == nil || ip.IsLoopback() {
+		return ""
+	}
+	return ip.String()
 }
 
 // trackTurnRoute mirrors routes that FreeTurn says it intends to manage. We
@@ -159,21 +243,16 @@ func freeTurnStreamID(line string) string {
 
 var activeConnectionCountRE = regexp.MustCompile(`(?i)activeConnectionCount[^0-9]+([0-9]+)`)
 
-// isFreeTurnReadyLine recognises stable INFO-level readiness signals from both
-// FreeTurn relay modes and older client versions.
+// isFreeTurnReadyLine recognises established transport readiness signals from
+// both FreeTurn relay modes and older client versions.
 //
 // "Established DTLS connection" is currently a Debugf line in FreeTurn UDP
 // mode, so a normal production client never prints it unless -debug is enabled.
-// "TURN allocation up" is the first reliable INFO-level UDP signal. The local
-// UDP listener is already bound by then, so sing-box may safely start sending
-// datagrams while DTLS finishes establishing.
+// "TURN allocation up" only means the relay allocated an address. It can be
+// followed by DTLS or TURN failure, so wait for the debug-level DTLS handshake
+// or the explicit stream-ready signal before starting sing-box.
 func isFreeTurnReadyLine(line string) bool {
 	lower := strings.ToLower(line)
-
-	// UDP mode: WireGuard / Hysteria2 / TUIC.
-	if strings.Contains(lower, "turn allocation up") {
-		return true
-	}
 
 	// TCP mode: VLESS / VMess / Trojan / Shadowsocks. Wait for a real pooled
 	// session rather than merely for the local TCP listener to open.
@@ -196,9 +275,23 @@ func isFreeTurnReadyLine(line string) bool {
 
 func (e *FreeturnEngine) startSingboxWhenReady() {
 	e.mu.Lock()
-	if e.sbApplied || e.sbStarting || e.sessionClosing || e.userStopped || e.cmd == nil {
+	if !e.ftReady || e.sbApplied || e.sbStarting || e.sessionClosing || e.userStopped || e.cmd == nil {
 		e.mu.Unlock()
 		return
+	}
+	if uiManagesTurnRoutes() {
+		e.turnRoutesMu.Lock()
+		hasTurnRoute := len(e.turnRoutes) > 0
+		e.turnRoutesMu.Unlock()
+		if !hasTurnRoute {
+			warn := !e.routePendingWarned
+			e.routePendingWarned = true
+			e.mu.Unlock()
+			if warn {
+				emitSessionLog(e.appCtx, "WARN", "[FT] DTLS готов, но маршрут к TURN ещё не установлен; ожидаем IP TURN-сервера")
+			}
+			return
+		}
 	}
 	e.sbStarting = true
 	cfgPath := e.sbCfgPath
@@ -227,6 +320,25 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 			emitSessionLog(e.appCtx, "ERROR", msg)
 			e.fail(fmt.Errorf("sing-box startup failed: %w", err))
 			return
+		}
+		if uiManagesTurnRoutes() {
+			e.turnRoutesMu.Lock()
+			ips := make([]string, 0, len(e.turnRoutes))
+			for ip := range e.turnRoutes {
+				ips = append(ips, ip)
+			}
+			if e.protectedPeerIP != "" {
+				ips = append(ips, e.protectedPeerIP)
+			}
+			e.turnRoutesMu.Unlock()
+			if err := verifyManagedTurnRoutes(ips); err != nil {
+				msg := fmt.Sprintf("[FT] Маршрут TURN изменился после запуска sing-box: %v", err)
+				emitSessionLog(e.appCtx, "ERROR", msg)
+				runtime.EventsEmit(e.appCtx, "error", msg)
+				e.sbTun.Stop()
+				e.fail(err)
+				return
+			}
 		}
 
 		e.mu.Lock()

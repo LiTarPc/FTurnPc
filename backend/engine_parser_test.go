@@ -8,8 +8,8 @@ func TestIsFreeTurnReadyLine(t *testing.T) {
 		line string
 		want bool
 	}{
-		// Current FreeTurn UDP mode emits allocation readiness at INFO level.
-		{name: "udp allocation ready", line: "[STREAM 1] TURN allocation up: relayed=91.231.135.171:60989 server=91.231.135.171", want: true},
+		// An allocation is not a usable DTLS transport yet.
+		{name: "udp allocation pending", line: "[STREAM 1] TURN allocation up: relayed=91.231.135.171:60989 server=91.231.135.171", want: false},
 
 		// Current FreeTurn TCP mode emits these at INFO level after a usable
 		// KCP/smux session has joined the pool.
@@ -93,6 +93,23 @@ func TestFreeTurnStreamID(t *testing.T) {
 	for _, tt := range tests {
 		if got := freeTurnStreamID(tt.line); got != tt.want {
 			t.Fatalf("freeTurnStreamID(%q) = %q, want %q", tt.line, got, tt.want)
+		}
+	}
+}
+
+func TestFreeTurnServerIP(t *testing.T) {
+	tests := []struct{ line, want string }{
+		{"[STREAM 1] TURN allocation up: relayed=91.231.135.171:38041 server=91.231.135.171", "91.231.135.171"},
+		{"Resolved TURN server vk.example to 193.203.43.16:19302", "193.203.43.16"},
+		{"TURN server IP: 193.203.43.16", "193.203.43.16"},
+		{"selected turn: 91.231.135.171:19302", "91.231.135.171"},
+		{"[STREAM 2] TURN allocation released: relayed=193.203.43.16:65105", ""},
+		{"TURN allocation up: server=127.0.0.1", ""},
+		{"TURN allocation up: server=not-an-ip", ""},
+	}
+	for _, tt := range tests {
+		if got := freeTurnServerIP(tt.line); got != tt.want {
+			t.Errorf("freeTurnServerIP(%q) = %q, want %q", tt.line, got, tt.want)
 		}
 	}
 }

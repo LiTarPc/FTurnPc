@@ -56,8 +56,9 @@ An explicit `mode` that conflicts with a known protocol is rejected.
 - Generated sing-box config is per-session, mode `0600`, and removed at teardown instead of reusing permanent `config.json` containing credentials.
 - FreeTurn is attached to the Windows Job Object too, not only sing-box.
 - FreeTurn child process wait uses the captured command instead of mutable engine state.
-- Production FreeTurn launch no longer enables `-debug` unconditionally.
+- UDP sessions enable `-debug` to observe the DTLS handshake before starting sing-box. On Windows TCP sessions also enable it to discover TURN candidates before TUN routing starts.
 - Secrets in launch arguments remain redacted in logs.
+- On Windows, the UI owns peer and TURN `/32` routes: it selects the lowest-metric active hardware Ethernet/Wi-Fi gateway, verifies the resulting route with `GetBestRoute` before and after TUN startup, and removes only its own routes at session teardown. FreeTurn retains `-routes` on other platforms.
 
 ### SingboxTun lifecycle
 
@@ -72,6 +73,7 @@ An explicit `mode` that conflicts with a known protocol is rejected.
 ### FreeTurn log parser
 
 - `activeConnectionCount` is a readiness signal only when the parsed value is `>= 1`; `activeConnectionCount=0` no longer starts sing-box.
+- UDP `TURN allocation up` is no longer treated as transport readiness; the DTLS handshake or explicit stream-ready signal is required.
 - Empty stream IDs are ignored.
 - Error/event log lines sent to the UI are bounded.
 - Duplicate sing-box startup from repeated FreeTurn readiness lines is prevented with `sbStarting`/`sbApplied` state.
