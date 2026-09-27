@@ -15,7 +15,7 @@ concurrency:
 
 env:
   SINGBOX_VERSION: "1.14.0"
-  FREETURN_CORE_COMMIT: "2a31cfaf4cb818d13e0dd8a0dcf0b034468e7327"
+  FREETURN_CORE_COMMIT: "08ba58828be6a16734c38e226ac57bcdccd51d72"
   PREVIEW_TAG: "singbox-fix-latest"
 
 jobs:
@@ -72,7 +72,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path "../build/bin" | Out-Null
           go test ./internal/provider/vk/internal/vkauth
           if ($LASTEXITCODE -ne 0) { throw "FreeTurn auth tests failed" }
-          go build -trimpath -ldflags "-s -w -checklinkname=0 -X main.version=4.1.1-preview" -o "../build/bin/client-windows-amd64.exe" ./cmd/client
+          go test ./internal/transport/turndial
+          if ($LASTEXITCODE -ne 0) { throw "FreeTurn TURN tests failed" }
+          go build -trimpath -ldflags "-s -w -checklinkname=0 -X main.version=4.1.2-preview" -o "../build/bin/client-windows-amd64.exe" ./cmd/client
           if ($LASTEXITCODE -ne 0) { throw "FreeTurn client build failed" }
           $file = Get-Item "../build/bin/client-windows-amd64.exe"
           if ($file.Length -lt 1MB) { throw "Built FreeTurn client is unexpectedly small: $($file.Length) bytes" }

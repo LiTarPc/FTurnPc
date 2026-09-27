@@ -17,13 +17,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const CoreRepo = "samosvalishe/free-turn-proxy"
+const CoreRepo = "LiTarPc/fturn-core"
 
 const (
 	maxCoreDownloadBytes   int64 = 64 * 1024 * 1024
@@ -51,6 +52,8 @@ type githubReleaseAsset struct {
 type githubReleaseResponse struct {
 	TagName     string               `json:"tag_name"`
 	Name        string               `json:"name"`
+	Draft       bool                 `json:"draft"`
+	Prerelease  bool                 `json:"prerelease"`
 	PublishedAt string               `json:"published_at"`
 	Body        string               `json:"body"`
 	Assets      []githubReleaseAsset `json:"assets"`
@@ -66,7 +69,7 @@ func GetCoreVersion() string {
 	verFile := filepath.Join(filepath.Dir(exePath), "core_version.txt")
 	if vfi, err := os.Stat(verFile); err == nil && !vfi.ModTime().Before(fi.ModTime()) {
 		if data, err := os.ReadFile(verFile); err == nil {
-			if ver := strings.TrimSpace(string(data)); ver != "" {
+			if ver := strings.TrimSpace(string(data)); validCoreVersion(ver) {
 				return ver
 			}
 		}
@@ -79,16 +82,30 @@ func GetCoreVersion() string {
 		}
 		return ver
 	}
+	// Go module pseudo-versions such as v0.0.0-20260926-4fd1340 describe the
+	// build provenance, not the FreeTurn release. Identify known release assets
+	// by their published digest before consulting Go build metadata.
+	if ver := knownCoreBinaryVersion(exePath); ver != "" {
+		return cacheVersion(ver)
+	}
 
+	var revision string
 	if bi, err := buildinfo.ReadFile(exePath); err == nil {
-		if bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		if validCoreVersion(bi.Main.Version) {
 			return cacheVersion(bi.Main.Version)
 		}
 		for _, s := range bi.Settings {
 			if s.Key != "vcs.revision" {
 				continue
 			}
+			revision = s.Value
 			switch {
+			case strings.HasPrefix(s.Value, "08ba5882"):
+				return cacheVersion("v4.1.2-preview")
+			case strings.HasPrefix(s.Value, "4fd13406"):
+				return cacheVersion("v4.1.2")
+			case strings.HasPrefix(s.Value, "2a31cfaf"):
+				return cacheVersion("v4.1.1-preview")
 			case strings.HasPrefix(s.Value, "fa9549e6"):
 				return cacheVersion("v3.2.0")
 			case strings.HasPrefix(s.Value, "aed2839c"):
@@ -96,21 +113,6 @@ func GetCoreVersion() string {
 			}
 			break
 		}
-	}
-
-	ctxHelp, cancelHelp := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelHelp()
-	cmdHelp := exec.CommandContext(ctxHelp, exePath, "-help")
-	hideWindow(cmdHelp)
-	outHelp, _ := cmdHelp.CombinedOutput()
-	outStr := string(outHelp)
-	switch {
-	case strings.Contains(outStr, "-platform") || strings.Contains(outStr, "-routes"):
-		return cacheVersion("v3.2.0")
-	case strings.Contains(outStr, "-dns-mode") || strings.Contains(outStr, "-manual-captcha"):
-		return "v3.1.x"
-	case strings.Contains(outStr, "-mode"):
-		return "v2.x.x"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -130,10 +132,36 @@ func GetCoreVersion() string {
 		if !strings.HasPrefix(ver, "v") {
 			ver = "v" + ver
 		}
-		return cacheVersion(ver)
+		if validCoreVersion(ver) {
+			return cacheVersion(ver)
+		}
 	}
 
+	if len(revision) >= 12 {
+		return "Сборка " + revision[:12]
+	}
 	return fmt.Sprintf("Бинарный файл от %s", fi.ModTime().Format("2006-01-02"))
+}
+
+func knownCoreBinaryVersion(path string) string {
+	if goruntime.GOOS != "windows" {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	switch hex.EncodeToString(h.Sum(nil)) {
+	case "058c35708227741afc18e7ee523d84d11ea9f6de5e3249f3968196f2bd6b3673":
+		return "v4.1.2"
+	default:
+		return ""
+	}
 }
 
 func CheckCoreUpdate() (CoreUpdateInfo, error) {
@@ -174,14 +202,58 @@ func coreHasUpdate(current, latest string) bool {
 	if current == "Не установлен" || current == "Установлен" || strings.HasPrefix(current, "Бинарный файл") {
 		return true
 	}
-	norm := func(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
-	return norm(current) != norm(latest)
+	currentParts, currentOK := coreVersionParts(current)
+	latestParts, latestOK := coreVersionParts(latest)
+	if currentOK && latestOK {
+		return compareCoreVersionParts(currentParts, latestParts) < 0
+	}
+	return strings.TrimPrefix(strings.TrimSpace(current), "v") != strings.TrimPrefix(strings.TrimSpace(latest), "v")
+}
+
+func validCoreVersion(v string) bool {
+	parts, ok := coreVersionParts(v)
+	return ok && parts != [3]int{}
+}
+
+func coreVersionParts(v string) ([3]int, bool) {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if cut := strings.IndexAny(v, "-+"); cut >= 0 {
+		v = v[:cut]
+	}
+	fields := strings.Split(v, ".")
+	if len(fields) != 3 {
+		return [3]int{}, false
+	}
+	var parts [3]int
+	for i, field := range fields {
+		if field == "" {
+			return [3]int{}, false
+		}
+		n, err := strconv.Atoi(field)
+		if err != nil || n < 0 {
+			return [3]int{}, false
+		}
+		parts[i] = n
+	}
+	return parts, true
+}
+
+func compareCoreVersionParts(a, b [3]int) int {
+	for i := range a {
+		if a[i] < b[i] {
+			return -1
+		}
+		if a[i] > b[i] {
+			return 1
+		}
+	}
+	return 0
 }
 
 func fetchGitHubRelease(ctx context.Context, tag string) (githubReleaseResponse, error) {
 	var endpoint string
 	if tag == "latest" {
-		endpoint = fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", CoreRepo)
+		endpoint = fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=30", CoreRepo)
 	} else {
 		endpoint = fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", CoreRepo, url.PathEscape(tag))
 	}
@@ -202,11 +274,40 @@ func fetchGitHubRelease(ctx context.Context, tag string) (githubReleaseResponse,
 	if err != nil {
 		return githubReleaseResponse{}, fmt.Errorf("GitHub release response: %w", err)
 	}
+	if tag == "latest" {
+		var releases []githubReleaseResponse
+		if err := json.Unmarshal(data, &releases); err != nil {
+			return githubReleaseResponse{}, fmt.Errorf("ошибка декодирования списка релизов GitHub: %w", err)
+		}
+		return newestCoreRelease(releases)
+	}
 	var rel githubReleaseResponse
 	if err := json.Unmarshal(data, &rel); err != nil {
-		return githubReleaseResponse{}, fmt.Errorf("ошибка декодирования ответа GitHub: %w", err)
+		return githubReleaseResponse{}, fmt.Errorf("ошибка декодирования релиза GitHub: %w", err)
 	}
 	return rel, nil
+}
+
+func newestCoreRelease(releases []githubReleaseResponse) (githubReleaseResponse, error) {
+	var selected githubReleaseResponse
+	var selectedParts [3]int
+	for _, rel := range releases {
+		parts, ok := coreVersionParts(rel.TagName)
+		if rel.Draft || !ok || parts == [3]int{} {
+			continue
+		}
+		comparison := compareCoreVersionParts(parts, selectedParts)
+		if selected.TagName == "" || comparison > 0 ||
+			(comparison == 0 && selected.Prerelease && !rel.Prerelease) ||
+			(comparison == 0 && selected.Prerelease == rel.Prerelease && rel.PublishedAt > selected.PublishedAt) {
+			selected = rel
+			selectedParts = parts
+		}
+	}
+	if selected.TagName == "" {
+		return githubReleaseResponse{}, fmt.Errorf("в %s нет релиза FreeTurn с версией", CoreRepo)
+	}
+	return selected, nil
 }
 
 func coreHTTPClient(timeout time.Duration) *http.Client {

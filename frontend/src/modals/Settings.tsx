@@ -189,6 +189,7 @@ export default function Settings({ onClose }: Props) {
           <div className="st-nat-box" style={{ marginTop: 12 }}>
             <div className="st-nat-title"><IconRefresh size={14} /> Ядро FreeTurn (freeturnclient)</div>
             <div className="st-nat-sub">Статус ядра: <strong>{coreVer}</strong></div>
+            <div className="st-nat-sub">Обновления: LiTarPc/fturn-core (включая preview)</div>
             {coreUpdate && (
               <div className="st-nat-sub" style={{ color: coreUpdate.hasUpdate ? '#4ade80' : '#94a3b8', marginTop: 2 }}>
                 {coreUpdate.hasUpdate ? `Доступна новая версия: ${coreUpdate.latestVersion}` : 'Установлена актуальная версия ядра'}
