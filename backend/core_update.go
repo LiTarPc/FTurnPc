@@ -67,10 +67,11 @@ func GetCoreVersion() string {
 	}
 
 	verFile := filepath.Join(filepath.Dir(exePath), "core_version.txt")
+	var cachedVersion string
 	if vfi, err := os.Stat(verFile); err == nil && !vfi.ModTime().Before(fi.ModTime()) {
 		if data, err := os.ReadFile(verFile); err == nil {
 			if ver := strings.TrimSpace(string(data)); validCoreVersion(ver) {
-				return ver
+				cachedVersion = ver
 			}
 		}
 	}
@@ -91,9 +92,6 @@ func GetCoreVersion() string {
 
 	var revision string
 	if bi, err := buildinfo.ReadFile(exePath); err == nil {
-		if validCoreVersion(bi.Main.Version) {
-			return cacheVersion(bi.Main.Version)
-		}
 		for _, s := range bi.Settings {
 			if s.Key != "vcs.revision" {
 				continue
@@ -113,6 +111,15 @@ func GetCoreVersion() string {
 			}
 			break
 		}
+		if cachedVersion != "" {
+			return cachedVersion
+		}
+		if validCoreVersion(bi.Main.Version) {
+			return cacheVersion(bi.Main.Version)
+		}
+	}
+	if cachedVersion != "" {
+		return cachedVersion
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
