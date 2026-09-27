@@ -113,3 +113,22 @@ func TestFreeTurnServerIP(t *testing.T) {
 		}
 	}
 }
+
+func TestSafeFreeTurnLogLine(t *testing.T) {
+	tests := []struct {
+		line string
+		want bool
+	}{
+		{"[STREAM 1] Established DTLS connection", true},
+		{"[STREAM 1] [Captcha] solver succeeded", true},
+		{"[STREAM 1] [Captcha] pow envelope: {\"hash\":\"secret\"}", false},
+		{"[Captcha Proxy] real browser pow: {\"nonce\":1}", false},
+		{"[Captcha] header: Cookie = session=value", false},
+		{"[turnc] request session_token=secret", false},
+	}
+	for _, tt := range tests {
+		if got := safeFreeTurnLogLine(tt.line); got != tt.want {
+			t.Errorf("safeFreeTurnLogLine(%q) = %v, want %v", tt.line, got, tt.want)
+		}
+	}
+}

@@ -74,6 +74,8 @@ An explicit `mode` that conflicts with a known protocol is rejected.
 
 - `activeConnectionCount` is a readiness signal only when the parsed value is `>= 1`; `activeConnectionCount=0` no longer starts sing-box.
 - UDP `TURN allocation up` is no longer treated as transport readiness; the DTLS handshake or explicit stream-ready signal is required.
+- A sing-box warning that Windows TUN interface creation is slow extends only that startup attempt from 15 to 45 seconds; fatal errors and cancellation still stop immediately.
+- FreeTurn captcha debug payloads, browser cookies, and tokens are excluded from persisted UI logs even though `-debug` remains enabled for DTLS and TURN discovery.
 - Empty stream IDs are ignored.
 - Error/event log lines sent to the UI are bounded.
 - Duplicate sing-box startup from repeated FreeTurn readiness lines is prevented with `sbStarting`/`sbApplied` state.

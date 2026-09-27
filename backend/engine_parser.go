@@ -53,6 +53,9 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 			e.mu.Unlock()
 			e.startSingboxWhenReady()
 		}
+		if !safeFreeTurnLogLine(line) {
+			continue
+		}
 
 		bounded := boundedLogLine(line, 4096)
 		level := classifyLevel(line)
@@ -70,6 +73,30 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 	if err := scanner.Err(); err != nil {
 		log.Printf("[FT] Ошибка чтения логов FreeTurn: %v", err)
 	}
+}
+
+// -debug is needed for DTLS readiness and TURN candidate discovery, but the
+// core also prints captcha request bodies and browser cookies at that level.
+// Parse those lines internally, then keep them out of persisted/UI logs.
+func safeFreeTurnLogLine(line string) bool {
+	lower := strings.ToLower(line)
+	for _, marker := range []string{"session_token", "access_token", "client_secret", "cookie =", "cookie:", "authorization =", "ft_admin_session"} {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+	if strings.Contains(lower, "[captcha proxy]") {
+		return false
+	}
+	if strings.Contains(lower, "[captcha]") {
+		for _, marker := range []string{"solving captcha (", "solving vk smart captcha automatically", "solver succeeded", "triggering manual captcha", "got token from browser"} {
+			if strings.Contains(lower, marker) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // FreeTurn announces TURN candidates before, or at latest when, allocation is
