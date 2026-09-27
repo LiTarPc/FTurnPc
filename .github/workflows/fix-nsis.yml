@@ -15,7 +15,7 @@ concurrency:
 
 env:
   SINGBOX_VERSION: "1.14.0"
-  FREETURN_CORE_COMMIT: "08ba58828be6a16734c38e226ac57bcdccd51d72"
+  FREETURN_CORE_COMMIT: "58d4f175d245c5773786e19ace454216c625f92f"
   PREVIEW_TAG: "singbox-fix-latest"
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout FreeTurn preview core
+      - name: Checkout FreeTurn v4.1.3 core
         uses: actions/checkout@v4
         with:
           repository: LiTarPc/fturn-core
@@ -60,7 +60,7 @@ jobs:
           choco install nsis -y --no-progress
           "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Build FreeTurn preview client
+      - name: Build FreeTurn v4.1.3 client
         shell: pwsh
         working-directory: fturn-core
         env:
@@ -74,8 +74,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "FreeTurn auth tests failed" }
           go test ./internal/transport/turndial
           if ($LASTEXITCODE -ne 0) { throw "FreeTurn TURN tests failed" }
-          go build -trimpath -ldflags "-s -w -checklinkname=0 -X main.version=4.1.2-preview" -o "../build/bin/client-windows-amd64.exe" ./cmd/client
+          go build -trimpath -ldflags "-s -w -checklinkname=0 -X main.version=4.1.3" -o "../build/bin/client-windows-amd64.exe" ./cmd/client
           if ($LASTEXITCODE -ne 0) { throw "FreeTurn client build failed" }
+          $reportedVersion = & "../build/bin/client-windows-amd64.exe" -version
+          if ($LASTEXITCODE -ne 0 -or $reportedVersion -ne "v4.1.3") { throw "Unexpected FreeTurn version: $reportedVersion" }
           $file = Get-Item "../build/bin/client-windows-amd64.exe"
           if ($file.Length -lt 1MB) { throw "Built FreeTurn client is unexpectedly small: $($file.Length) bytes" }
           Write-Host "FreeTurn client: $($file.Length) bytes"

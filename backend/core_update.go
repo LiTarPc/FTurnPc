@@ -101,6 +101,8 @@ func GetCoreVersion() string {
 			}
 			revision = s.Value
 			switch {
+			case strings.HasPrefix(s.Value, "58d4f175"):
+				return cacheVersion("v4.1.3")
 			case strings.HasPrefix(s.Value, "08ba5882"):
 				return cacheVersion("v4.1.2-preview")
 			case strings.HasPrefix(s.Value, "4fd13406"):
@@ -167,6 +169,8 @@ func knownCoreBinaryVersion(path string) string {
 		return ""
 	}
 	switch hex.EncodeToString(h.Sum(nil)) {
+	case "34533c9764079b577a59781f7e95148cc085311625611636f96597c0f3697b10":
+		return "v4.1.3"
 	case "058c35708227741afc18e7ee523d84d11ea9f6de5e3249f3968196f2bd6b3673":
 		return "v4.1.2"
 	default:

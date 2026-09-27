@@ -72,6 +72,7 @@ func TestCoreHasUpdate(t *testing.T) {
 		{"v4.1.2", "v4.1.2", false},
 		{"v4.1.2-preview", "v4.1.2", false},
 		{"v4.1.1-preview", "v4.1.2", true},
+		{"v4.1.2", "v4.1.3", true},
 		{"v4.1.3", "v4.1.2", false},
 		{"Не установлен", "v3.4.0", true},
 		{"Бинарный файл от 2026-09-01", "v3.4.0", true},
@@ -110,11 +111,12 @@ func TestNewestCoreReleaseIncludesPrereleases(t *testing.T) {
 	rel, err := newestCoreRelease([]githubReleaseResponse{
 		{TagName: "v3.3.1"},
 		{TagName: "v4.1.2", Prerelease: true, PublishedAt: "2026-09-26T17:44:24Z"},
+		{TagName: "v4.1.3", Prerelease: true, PublishedAt: "2026-09-27T08:01:33Z"},
 		{TagName: "v4.1.1", Prerelease: true},
 		{TagName: "v4.2.0", Draft: true},
 	})
-	if err != nil || rel.TagName != "v4.1.2" {
-		t.Fatalf("newestCoreRelease = %q, %v; want v4.1.2", rel.TagName, err)
+	if err != nil || rel.TagName != "v4.1.3" {
+		t.Fatalf("newestCoreRelease = %q, %v; want v4.1.3", rel.TagName, err)
 	}
 }
 
