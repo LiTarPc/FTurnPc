@@ -29,15 +29,16 @@ func TestSelectCoreAsset_ExactPlatformAndArch(t *testing.T) {
 }
 
 func TestValidateCoreDownloadURL(t *testing.T) {
-	good := "https://github.com/samosvalishe/free-turn-proxy/releases/download/v3.4.0/client-linux-amd64"
+	good := "https://github.com/LiTarPc/fturn-core/releases/download/v4.1.2/client-linux-amd64"
 	if err := validateCoreDownloadURL(good); err != nil {
 		t.Fatalf("valid URL rejected: %v", err)
 	}
 	bad := []string{
-		"http://github.com/samosvalishe/free-turn-proxy/releases/download/v3.4.0/client-linux-amd64",
-		"https://evil.example/samosvalishe/free-turn-proxy/releases/download/v3.4.0/client-linux-amd64",
+		"http://github.com/LiTarPc/fturn-core/releases/download/v4.1.2/client-linux-amd64",
+		"https://evil.example/LiTarPc/fturn-core/releases/download/v4.1.2/client-linux-amd64",
 		"https://github.com/other/repo/releases/download/v1/client-linux-amd64",
-		"https://github.com/samosvalishe/free-turn-proxy/archive/refs/heads/main.zip",
+		"https://github.com/samosvalishe/free-turn-proxy/releases/download/v4.0.1/client-linux-amd64",
+		"https://github.com/LiTarPc/fturn-core/archive/refs/heads/main.zip",
 	}
 	for _, raw := range bad {
 		if err := validateCoreDownloadURL(raw); err == nil {
@@ -68,6 +69,11 @@ func TestCoreHasUpdate(t *testing.T) {
 		{"v3.4.0", "v3.4.0", false},
 		{"3.4.0", "v3.4.0", false},
 		{"v3.3.0", "v3.4.0", true},
+		{"v4.1.2", "v4.1.2", false},
+		{"v4.1.2-preview", "v4.1.2", false},
+		{"v4.1.1-preview", "v4.1.2", true},
+		{"v4.1.2", "v4.1.3", true},
+		{"v4.1.3", "v4.1.2", false},
 		{"Не установлен", "v3.4.0", true},
 		{"Бинарный файл от 2026-09-01", "v3.4.0", true},
 		{"v3.4.0", "", false},
@@ -76,6 +82,41 @@ func TestCoreHasUpdate(t *testing.T) {
 		if got := coreHasUpdate(tt.current, tt.latest); got != tt.want {
 			t.Errorf("coreHasUpdate(%q,%q)=%v, want %v", tt.current, tt.latest, got, tt.want)
 		}
+	}
+}
+
+func TestCoreVersionRejectsGoPseudoVersion(t *testing.T) {
+	if validCoreVersion("v0.0.0-20260926174015-4fd1340673bb") {
+		t.Fatal("Go pseudo-version must not be displayed as a FreeTurn release")
+	}
+	if !validCoreVersion("v4.1.2-preview") {
+		t.Fatal("preview FreeTurn version should be accepted")
+	}
+}
+
+func TestParseCoreReportedVersion(t *testing.T) {
+	for input, want := range map[string]string{
+		"v4.1.3\n":                        "v4.1.3",
+		"version=4.1.3-preview\r\n":    "v4.1.3-preview",
+		"flag provided but not defined\n": "",
+		"v0.0.0-20260926-4fd134\n":   "",
+	} {
+		if got := parseCoreReportedVersion(input); got != want {
+			t.Errorf("parseCoreReportedVersion(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestNewestCoreReleaseIncludesPrereleases(t *testing.T) {
+	rel, err := newestCoreRelease([]githubReleaseResponse{
+		{TagName: "v3.3.1"},
+		{TagName: "v4.1.2", Prerelease: true, PublishedAt: "2026-09-26T17:44:24Z"},
+		{TagName: "v4.1.3", Prerelease: true, PublishedAt: "2026-09-27T08:01:33Z"},
+		{TagName: "v4.1.1", Prerelease: true},
+		{TagName: "v4.2.0", Draft: true},
+	})
+	if err != nil || rel.TagName != "v4.1.3" {
+		t.Fatalf("newestCoreRelease = %q, %v; want v4.1.3", rel.TagName, err)
 	}
 }
 
@@ -91,7 +132,7 @@ func TestExtractCoreExecutable_ZipUsesKnownClientNotFirstExe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := extractCoreExecutable(buf.Bytes(), "https://github.com/samosvalishe/free-turn-proxy/releases/download/v1/client-windows-amd64.zip", "windows", "amd64")
+	got, err := extractCoreExecutable(buf.Bytes(), "https://github.com/LiTarPc/fturn-core/releases/download/v1/client-windows-amd64.zip", "windows", "amd64")
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -106,7 +147,7 @@ func TestExtractCoreExecutable_ZipRejectsUnknownFile(t *testing.T) {
 	f, _ := zw.Create("random.exe")
 	_, _ = f.Write(fakeExecutable("windows", 2048))
 	_ = zw.Close()
-	if _, err := extractCoreExecutable(buf.Bytes(), "https://github.com/samosvalishe/free-turn-proxy/releases/download/v1/client-windows-amd64.zip", "windows", "amd64"); err == nil {
+	if _, err := extractCoreExecutable(buf.Bytes(), "https://github.com/LiTarPc/fturn-core/releases/download/v1/client-windows-amd64.zip", "windows", "amd64"); err == nil {
 		t.Fatal("ZIP with no known client binary must be rejected")
 	}
 }
