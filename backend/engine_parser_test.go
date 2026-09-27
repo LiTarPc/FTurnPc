@@ -49,6 +49,12 @@ func TestTrackFreeTurnStream(t *testing.T) {
 	if !e.activeStreams["7"] {
 		t.Fatal("UDP stream 7 should be active after TURN allocation up")
 	}
+	// Pion can time out one refresh and recover on the next; the allocation
+	// remains open, so a warning must not permanently lower the tray count.
+	e.trackFreeTurnStream("[STREAM 7] [turnc] Failed to refresh allocation: all retransmissions failed")
+	if !e.activeStreams["7"] {
+		t.Fatal("transient TURN refresh failure removed an active stream")
+	}
 	e.trackFreeTurnStream("[STREAM 7] TURN allocation released: relayed=1.2.3.4:12345 deallocate=<nil>")
 	if e.activeStreams["7"] {
 		t.Fatal("UDP stream 7 should be removed after allocation release")

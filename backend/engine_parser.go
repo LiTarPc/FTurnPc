@@ -228,8 +228,8 @@ func (e *FreeturnEngine) trackFreeTurnStream(line string) {
 		strings.Contains(lower, "] connected (active:")
 	inactive := strings.Contains(lower, "turn allocation released") ||
 		strings.Contains(lower, "] disconnected") ||
-		strings.Contains(lower, "closed") ||
-		strings.Contains(lower, "failed")
+		strings.Contains(lower, "closed dtls connection") ||
+		strings.Contains(lower, "] closed")
 
 	if !active && !inactive {
 		return
