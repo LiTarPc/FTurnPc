@@ -93,6 +93,19 @@ func TestCoreVersionRejectsGoPseudoVersion(t *testing.T) {
 	}
 }
 
+func TestParseCoreReportedVersion(t *testing.T) {
+	for input, want := range map[string]string{
+		"v4.1.3\n":                        "v4.1.3",
+		"version=4.1.3-preview\r\n":    "v4.1.3-preview",
+		"flag provided but not defined\n": "",
+		"v0.0.0-20260926-4fd134\n":   "",
+	} {
+		if got := parseCoreReportedVersion(input); got != want {
+			t.Errorf("parseCoreReportedVersion(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestNewestCoreReleaseIncludesPrereleases(t *testing.T) {
 	rel, err := newestCoreRelease([]githubReleaseResponse{
 		{TagName: "v3.3.1"},

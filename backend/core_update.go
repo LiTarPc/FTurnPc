@@ -89,6 +89,9 @@ func GetCoreVersion() string {
 	if ver := knownCoreBinaryVersion(exePath); ver != "" {
 		return cacheVersion(ver)
 	}
+	if ver := readCoreReportedVersion(exePath); ver != "" {
+		return cacheVersion(ver)
+	}
 
 	var revision string
 	if bi, err := buildinfo.ReadFile(exePath); err == nil {
@@ -169,6 +172,32 @@ func knownCoreBinaryVersion(path string) string {
 	default:
 		return ""
 	}
+}
+
+func readCoreReportedVersion(path string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "-version")
+	hideWindow(cmd)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	return parseCoreReportedVersion(string(out))
+}
+
+func parseCoreReportedVersion(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "version=")
+		if line != "" && !strings.HasPrefix(line, "v") {
+			line = "v" + line
+		}
+		if validCoreVersion(line) {
+			return line
+		}
+	}
+	return ""
 }
 
 func CheckCoreUpdate() (CoreUpdateInfo, error) {
