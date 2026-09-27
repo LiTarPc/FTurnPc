@@ -263,7 +263,7 @@ func buildFreeTurnArgs(p ConnectParams, prof *ProfileData, mode string) []string
 	if workers <= 0 {
 		workers = prof.Power
 	}
-	if workers <= 0 {
+	if workers < 10 {
 		workers = 10
 	}
 	args = append(args, "-n", fmt.Sprintf("%d", workers))

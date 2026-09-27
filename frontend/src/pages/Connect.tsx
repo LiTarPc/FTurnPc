@@ -236,7 +236,7 @@ export default function Connect() {
     logStore.clear();
     logStore.push('INFO', `Подключение к профилю: ${cur.name}`);
     try {
-      const workers = cur.power || 10;
+      const workers = Math.max(10, cur.power || 10);
       const bypassRu = settingsStore.get().bypassRu;
       const mtu = Number(settingsStore.get().mtu) || 1300;
       await WailsConnect({

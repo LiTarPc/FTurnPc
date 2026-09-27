@@ -12,7 +12,7 @@ interface Props {
 
 export function ViewServer({ server, onClose, onSave }: Props) {
   const [links, setLinks] = useState(server.links || '');
-  const [power, setPower] = useState(String(server.power || 10));
+  const [power, setPower] = useState(String(Math.max(10, server.power || 10)));
   const [streams, setStreams] = useState(String(server.streamsPerCred || 5));
   
   const [peer, setPeer] = useState(server.peer || '');
@@ -38,7 +38,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
       const full: Server = { ...server, ...data };
       setProfile(full);
       setLinks(data.links || server.links || '');
-      setPower(String(data.power || server.power || 10));
+      setPower(String(Math.max(10, data.power || server.power || 10)));
       setStreams(String(data.streamsPerCred || server.streamsPerCred || 5));
       setPeer(data.peer || server.peer || '');
       setProvider(data.provider || server.provider || '');
@@ -57,6 +57,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
     try {
       let pNum = parseInt(power, 10);
       if (isNaN(pNum)) pNum = 10;
+      pNum = Math.max(10, pNum);
       if (!devMode && pNum > 20) pNum = 20;
 
       const sNum = parseInt(streams, 10);
@@ -241,9 +242,9 @@ export function ViewServer({ server, onClose, onSave }: Props) {
                 onChange={e => {
                   let val = Number(e.target.value);
                   if (!devMode && val > 20) val = 20;
-                  setPower(String(val));
+                  setPower(String(Math.max(10, val)));
                 }}
-                min="1"
+                min="10"
                 max={devMode ? "100" : "20"}
               />
             </div>

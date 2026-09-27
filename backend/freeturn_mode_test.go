@@ -81,7 +81,7 @@ func TestBuildFreeTurnArgs_ModeAndTransportAreIndependent(t *testing.T) {
 	assertArgPair(t, args, "-transport", "udp")
 	assertArgPair(t, args, "-listen", "127.0.0.1:9000")
 	assertArgPair(t, args, "-peer", profile.PeerAddr)
-	assertArgPair(t, args, "-n", "7")
+	assertArgPair(t, args, "-n", "10")
 	assertArgPair(t, args, "-streams-per-cred", "3")
 	debug := false
 	for _, arg := range args {
