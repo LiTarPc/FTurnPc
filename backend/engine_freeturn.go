@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,11 @@ import (
 )
 
 const freeTurnStopTimeout = 4 * time.Second
+
+type managedTurnRoute struct {
+	gateway string
+	ifIndex int
+}
 
 // FreeturnEngine manages freeturnclient and the dependent sing-box TUN process.
 type FreeturnEngine struct {
@@ -29,10 +35,13 @@ type FreeturnEngine struct {
 	sessionClosing   bool
 	failureErr       error
 
-	sbTun      *SingboxTun
-	sbCfgPath  string
-	sbApplied  bool
-	sbStarting bool
+	sbTun              *SingboxTun
+	sbCfgPath          string
+	tunName            string
+	sbApplied          bool
+	sbStarting         bool
+	ftReady            bool
+	routePendingWarned bool
 
 	configuredStreams int
 	muStreams         sync.Mutex
@@ -40,8 +49,11 @@ type FreeturnEngine struct {
 	statsStop         chan struct{}
 	exitChan          chan struct{}
 
-	turnRoutesMu sync.Mutex
-	turnRoutes   map[string]struct{}
+	turnRoutesMu      sync.Mutex
+	turnRoutes        map[string]struct{}
+	managedTurnRoutes map[string]managedTurnRoute
+	turnRouteFailures map[string]time.Time
+	protectedPeerIP   string
 }
 
 func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int32), onUnexpectedExit func(err error)) *FreeturnEngine {
@@ -71,12 +83,20 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.failureErr = nil
 	e.sbApplied = false
 	e.sbStarting = false
+	e.ftReady = false
+	e.routePendingWarned = false
 	e.statsStop = nil
+	e.tunName = newSessionTunName()
+	e.sbTun.tunName = e.tunName
+	p.tunName = e.tunName
 	e.muStreams.Lock()
 	e.activeStreams = make(map[string]bool)
 	e.muStreams.Unlock()
 	e.turnRoutesMu.Lock()
 	e.turnRoutes = make(map[string]struct{})
+	e.managedTurnRoutes = make(map[string]managedTurnRoute)
+	e.turnRouteFailures = make(map[string]time.Time)
+	e.protectedPeerIP = ""
 	e.turnRoutesMu.Unlock()
 
 	mode, err := ResolveFreeTurnMode(prof)
@@ -145,6 +165,17 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	}
 
 	args := buildFreeTurnArgs(p, prof, mode)
+	cleanupRoutesOnError := true
+	defer func() {
+		if cleanupRoutesOnError {
+			e.cleanupTrackedTurnRoutes()
+		}
+	}()
+	if uiManagesTurnRoutes() {
+		if err := e.protectFreeTurnPeer(prof.PeerAddr); err != nil {
+			return fmt.Errorf("маршрут к FreeTurn peer: %w", err)
+		}
+	}
 	ctx := e.appCtx
 	if ctx == nil {
 		ctx = context.Background()
@@ -177,6 +208,7 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	attachToJob(cmd)
 	e.cmd = cmd
 	cleanupConfigOnError = false
+	cleanupRoutesOnError = false
 
 	runtime.EventsEmit(e.appCtx, "state_changed", "connecting", "")
 	if e.onTray != nil {
@@ -190,15 +222,42 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	return nil
 }
 
+// protectFreeTurnPeer keeps the remote transport socket on the physical link
+// before FreeTurn starts, including when another VPN owns a host route.
+func (e *FreeturnEngine) protectFreeTurnPeer(peerAddr string) error {
+	host, _, err := net.SplitHostPort(peerAddr)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || ip.To4() == nil {
+		emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] peer %q не является IPv4 адресом; маршрут через физический интерфейс для него не закреплён", host))
+		return nil
+	}
+	route, err := addManagedTurnRoute(ip.String())
+	if route != nil {
+		e.managedTurnRoutes[ip.String()] = *route
+	}
+	if err != nil {
+		return err
+	}
+	e.protectedPeerIP = ip.String()
+	if route != nil {
+		emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[FT] peer %s/32 через %s (interface %d)", ip, route.gateway, route.ifIndex))
+	}
+	return nil
+}
+
 func buildFreeTurnArgs(p ConnectParams, prof *ProfileData, mode string) []string {
 	args := []string{
 		"-listen", freeTurnHost + ":9000",
 		"-peer", prof.PeerAddr,
 		"-mode", mode,
-		// FreeTurn already knows every dynamically selected TURN server. Let it
-		// install /32 host routes through the physical default gateway before the
-		// sing-box TUN comes up so TURN transport never depends on fturn-tun.
-		"-routes",
+	}
+	if !uiManagesTurnRoutes() {
+		// On non-Windows FreeTurn owns dynamic TURN routes. On Windows the UI
+		// selects a physical adapter and owns exact host routes instead.
+		args = append(args, "-routes")
 	}
 	if prof.Links != "" {
 		args = append(args, "-links", prof.Links)
@@ -208,7 +267,7 @@ func buildFreeTurnArgs(p ConnectParams, prof *ProfileData, mode string) []string
 	if workers <= 0 {
 		workers = prof.Power
 	}
-	if workers <= 0 {
+	if workers < 10 {
 		workers = 10
 	}
 	args = append(args, "-n", fmt.Sprintf("%d", workers))
@@ -232,6 +291,12 @@ func buildFreeTurnArgs(p ConnectParams, prof *ProfileData, mode string) []string
 	}
 	if prof.Cid != "" {
 		args = append(args, "-client-id", prof.Cid)
+	}
+	// UDP DTLS readiness and early TURN candidate discovery are logged at
+	// debug level by FreeTurn. Windows also needs candidate IPs in TCP mode
+	// before sing-box installs its TUN routes.
+	if mode == freeTurnModeUDP || uiManagesTurnRoutes() {
+		args = append(args, "-debug")
 	}
 	return args
 }
@@ -299,9 +364,8 @@ func (e *FreeturnEngine) waitFreeTurn(cmd *exec.Cmd, exitChan chan struct{}) {
 	e.sbTun.Stop()
 	e.wg.Wait()
 
-	// FreeTurn removes its own -routes entries on a clean shutdown. If it was
-	// killed/crashed, any routes still remembered from its logs are removed here
-	// as a best-effort safety net before an auto-reconnect starts a new process.
+	// On Windows remove only routes this UI created. Elsewhere FreeTurn removes
+	// its own -routes entries on a clean shutdown; the fallback handles crashes.
 	e.cleanupTrackedTurnRoutes()
 
 	emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
@@ -435,6 +499,21 @@ func (e *FreeturnEngine) stopFreeTurnProcess(cmd *exec.Cmd, cancel context.Cance
 }
 
 func (e *FreeturnEngine) cleanupTrackedTurnRoutes() {
+	if uiManagesTurnRoutes() {
+		e.turnRoutesMu.Lock()
+		routes := e.managedTurnRoutes
+		e.managedTurnRoutes = make(map[string]managedTurnRoute)
+		e.turnRoutes = make(map[string]struct{})
+		e.turnRouteFailures = make(map[string]time.Time)
+		e.protectedPeerIP = ""
+		e.turnRoutesMu.Unlock()
+		for ip, route := range routes {
+			if err := deleteManagedTurnRoute(ip, route); err != nil {
+				emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] failed to cleanup TURN route %s/32: %v", ip, err))
+			}
+		}
+		return
+	}
 	e.turnRoutesMu.Lock()
 	ips := make([]string, 0, len(e.turnRoutes))
 	for ip := range e.turnRoutes {

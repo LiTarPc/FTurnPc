@@ -44,10 +44,26 @@ func TestSingboxTunHelperProcess(t *testing.T) {
 		time.Sleep(30 * time.Second)
 	case "silent-hold":
 		time.Sleep(30 * time.Second)
+	case "slow-tun-ready":
+		fmt.Fprintln(os.Stderr, "WARN inbound/tun[tun-in]: open interface take too much time to finish!")
+		time.Sleep(500 * time.Millisecond)
+		fmt.Fprintln(os.Stderr, "INFO sing-box started (0.50s)")
+		time.Sleep(30 * time.Second)
 	default:
 		fmt.Fprintln(os.Stderr, "unknown helper scenario")
 		os.Exit(3)
 	}
+}
+
+func TestSingboxTunStart_WaitsForSlowTun(t *testing.T) {
+	installSingboxLifecycleGlobals(t, "slow-tun-ready", "")
+	singboxReadyTimeout = 250 * time.Millisecond
+	singboxSlowTunTimeout = 2 * time.Second
+	tun := &SingboxTun{}
+	if err := tun.Start("config.json"); err != nil {
+		t.Fatalf("Start failed after sing-box reported a slow TUN: %v", err)
+	}
+	defer tun.Stop()
 }
 
 func TestSingboxTunStart_CheckFailureDoesNotSpawn(t *testing.T) {
@@ -299,7 +315,7 @@ func TestSingboxParseLogs_LongLineStillFindsReadiness(t *testing.T) {
 	var readySeen atomic.Bool
 	var readyOnce sync.Once
 	input := strings.Repeat("x", 256*1024) + "\nINFO sing-box started (0.01s)\n"
-	tun.parseLogs(strings.NewReader(input), &readySeen, &readyOnce, readyCh, errCh)
+	tun.parseLogs(strings.NewReader(input), &readySeen, &readyOnce, readyCh, errCh, make(chan struct{}, 1))
 	select {
 	case <-readyCh:
 	default:
@@ -317,6 +333,7 @@ func installSingboxLifecycleGlobals(t *testing.T, scenario, marker string) {
 	oldPrepare := singboxPrepareFunc
 	oldAttach := singboxAttachFunc
 	oldReadyTimeout := singboxReadyTimeout
+	oldSlowTunTimeout := singboxSlowTunTimeout
 	oldStopTimeout := singboxStopTimeout
 	t.Cleanup(func() {
 		singboxPathFunc = oldPath
@@ -327,6 +344,7 @@ func installSingboxLifecycleGlobals(t *testing.T, scenario, marker string) {
 		singboxPrepareFunc = oldPrepare
 		singboxAttachFunc = oldAttach
 		singboxReadyTimeout = oldReadyTimeout
+		singboxSlowTunTimeout = oldSlowTunTimeout
 		singboxStopTimeout = oldStopTimeout
 	})
 

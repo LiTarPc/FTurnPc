@@ -24,12 +24,14 @@ var (
 	singboxPrepareFunc      = prepareProcessGroup
 	singboxAttachFunc       = attachToJob
 	singboxReadyTimeout     = 15 * time.Second
+	singboxSlowTunTimeout   = 45 * time.Second
 	singboxStopTimeout      = 3 * time.Second
 )
 
 // SingboxTun manages the external sing-box process and its TUN lifecycle.
 type SingboxTun struct {
 	appCtx context.Context
+	tunName string
 
 	mu            sync.Mutex
 	cmd           *exec.Cmd
@@ -147,9 +149,10 @@ func (t *SingboxTun) Start(cfgPath string) error {
 	var readySeen atomic.Bool
 	readyCh := make(chan struct{})
 	errCh := make(chan string, 2)
+	slowTunCh := make(chan struct{}, 1)
 	var readyOnce sync.Once
-	go t.parseLogs(stdout, &readySeen, &readyOnce, readyCh, errCh)
-	go t.parseLogs(stderr, &readySeen, &readyOnce, readyCh, errCh)
+	go t.parseLogs(stdout, &readySeen, &readyOnce, readyCh, errCh, slowTunCh)
+	go t.parseLogs(stderr, &readySeen, &readyOnce, readyCh, errCh, slowTunCh)
 
 	if wasStopRequested {
 		t.stopProcess(cmd, cancel, done)
@@ -157,40 +160,63 @@ func (t *SingboxTun) Start(cfgPath string) error {
 		return fmt.Errorf("запуск sing-box отменён")
 	}
 
-	timer := time.NewTimer(singboxReadyTimeout)
+	startedWaiting := time.Now()
+	readyTimeout := singboxReadyTimeout
+	timer := time.NewTimer(readyTimeout)
 	defer timer.Stop()
-	select {
-	case <-readyCh:
-		t.mu.Lock()
-		if t.cmd != cmd || t.stopRequested || t.stopping {
+	for {
+		select {
+		case <-readyCh:
+			t.mu.Lock()
+			if t.cmd != cmd || t.stopRequested || t.stopping {
+				t.mu.Unlock()
+				t.stopProcess(cmd, cancel, done)
+				cleanupStartFailure()
+				return fmt.Errorf("запуск sing-box отменён")
+			}
+			t.started = true
+			t.starting = false
 			t.mu.Unlock()
+			name := t.tunName
+			if name == "" {
+				name = singTunName
+			}
+			log.Printf("[SB] sing-box запущен, TUN %s создан", name)
+			return nil
+		case errMsg := <-errCh:
 			t.stopProcess(cmd, cancel, done)
 			cleanupStartFailure()
-			return fmt.Errorf("запуск sing-box отменён")
+			return fmt.Errorf("sing-box ошибка: %s", errMsg)
+		case err := <-exitErrCh:
+			cleanupStartFailure()
+			if err == nil {
+				return fmt.Errorf("sing-box завершился до готовности")
+			}
+			return fmt.Errorf("sing-box завершился до готовности: %w", err)
+		case <-ctx.Done():
+			t.stopProcess(cmd, cancel, done)
+			cleanupStartFailure()
+			return fmt.Errorf("запуск sing-box отменён: %w", ctx.Err())
+		case <-timer.C:
+			t.stopProcess(cmd, cancel, done)
+			cleanupStartFailure()
+			return fmt.Errorf("sing-box не запустился за %s", readyTimeout)
+		case <-slowTunCh:
+			if readyTimeout < singboxSlowTunTimeout {
+				readyTimeout = singboxSlowTunTimeout
+				remaining := readyTimeout - time.Since(startedWaiting)
+				if remaining > 0 {
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timer.Reset(remaining)
+					log.Printf("[SB] Windows TUN открывается медленно; ждём готовности до %s", readyTimeout)
+				}
+			}
 		}
-		t.started = true
-		t.starting = false
-		t.mu.Unlock()
-		log.Printf("[SB] sing-box запущен, TUN %s создан", singTunName)
-		return nil
-	case errMsg := <-errCh:
-		t.stopProcess(cmd, cancel, done)
-		cleanupStartFailure()
-		return fmt.Errorf("sing-box ошибка: %s", errMsg)
-	case err := <-exitErrCh:
-		cleanupStartFailure()
-		if err == nil {
-			return fmt.Errorf("sing-box завершился до готовности")
-		}
-		return fmt.Errorf("sing-box завершился до готовности: %w", err)
-	case <-ctx.Done():
-		t.stopProcess(cmd, cancel, done)
-		cleanupStartFailure()
-		return fmt.Errorf("запуск sing-box отменён: %w", ctx.Err())
-	case <-timer.C:
-		t.stopProcess(cmd, cancel, done)
-		cleanupStartFailure()
-		return fmt.Errorf("sing-box не запустился за %s", singboxReadyTimeout)
 	}
 }
 
@@ -312,7 +338,7 @@ func (t *SingboxTun) IsRunning() bool {
 	return t.cmd != nil && t.started
 }
 
-func (t *SingboxTun) parseLogs(r io.Reader, readySeen *atomic.Bool, readyOnce *sync.Once, readyCh chan<- struct{}, errCh chan<- string) {
+func (t *SingboxTun) parseLogs(r io.Reader, readySeen *atomic.Bool, readyOnce *sync.Once, readyCh chan<- struct{}, errCh chan<- string, slowTunCh chan<- struct{}) {
 	scanner := bufio.NewScanner(r)
 	// sing-box can print long JSON/error lines; the Scanner default is only 64 KiB.
 	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
@@ -320,6 +346,12 @@ func (t *SingboxTun) parseLogs(r io.Reader, readySeen *atomic.Bool, readyOnce *s
 		line := scanner.Text()
 		log.Printf("[SB] %s", boundedLogLine(line, 4096))
 		lower := strings.ToLower(line)
+		if strings.Contains(lower, "open interface take too much time to finish") {
+			select {
+			case slowTunCh <- struct{}{}:
+			default:
+			}
+		}
 		if strings.Contains(lower, "sing-box started") {
 			readySeen.Store(true)
 			readyOnce.Do(func() { close(readyCh) })

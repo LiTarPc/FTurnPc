@@ -2,8 +2,8 @@ package backend
 
 import "testing"
 
-func TestBuildFreeTurnArgsEnablesRoutes(t *testing.T) {
-	args := buildFreeTurnArgs(ConnectParams{}, &ProfileData{PeerAddr: "127.0.0.1:19302"}, freeTurnModeTCP)
+func TestBuildFreeTurnArgsRouteOwnership(t *testing.T) {
+	args := buildFreeTurnArgs(ConnectParams{}, &ProfileData{PeerAddr: "127.0.0.1:19302"}, freeTurnModeUDP)
 	found := false
 	for _, arg := range args {
 		if arg == "-routes" {
@@ -11,8 +11,18 @@ func TestBuildFreeTurnArgsEnablesRoutes(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatalf("buildFreeTurnArgs() = %v, want -routes", args)
+	if found == uiManagesTurnRoutes() {
+		t.Fatalf("buildFreeTurnArgs() = %v, -routes must be used only when FreeTurn owns routes", args)
+	}
+	debug := false
+	for _, arg := range args {
+		if arg == "-debug" {
+			debug = true
+			break
+		}
+	}
+	if !debug {
+		t.Fatalf("buildFreeTurnArgs() = %v, want -debug for DTLS readiness", args)
 	}
 }
 

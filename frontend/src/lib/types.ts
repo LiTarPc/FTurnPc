@@ -29,6 +29,7 @@ export interface AppSettings {
   hashes: [string, string, string, string];
   useGlobalHashes: boolean;
   bypassRu: boolean;
+  dnsServer: string;
   autoUpdateCore: boolean;
 }
 
@@ -44,5 +45,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hashes: ['', '', '', ''],
   useGlobalHashes: false,
   bypassRu: false,
+  dnsServer: '',
   autoUpdateCore: true,
 };

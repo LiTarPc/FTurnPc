@@ -229,10 +229,12 @@ type ProfileData struct {
 }
 
 type ConnectParams struct {
-	Profile  string `json:"profile"`
-	Workers  int    `json:"workers,omitempty"`
-	MTU      int    `json:"mtu,omitempty"`
-	BypassRu bool   `json:"bypassRu,omitempty"`
+	Profile   string `json:"profile"`
+	Workers   int    `json:"workers,omitempty"`
+	MTU       int    `json:"mtu,omitempty"`
+	BypassRu  bool   `json:"bypassRu,omitempty"`
+	DNSServer string `json:"dnsServer,omitempty"`
+	tunName   string
 }
 
 func loadProfile(name string) (*ProfileData, error) {

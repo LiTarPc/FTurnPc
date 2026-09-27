@@ -15,6 +15,7 @@ concurrency:
 
 env:
   SINGBOX_VERSION: "1.14.0"
+  FREETURN_CORE_COMMIT: "2a31cfaf4cb818d13e0dd8a0dcf0b034468e7327"
   PREVIEW_TAG: "singbox-fix-latest"
 
 jobs:
@@ -28,6 +29,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout FreeTurn preview core
+        uses: actions/checkout@v4
+        with:
+          repository: LiTarPc/fturn-core
+          ref: ${{ env.FREETURN_CORE_COMMIT }}
+          path: fturn-core
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -52,16 +60,22 @@ jobs:
           choco install nsis -y --no-progress
           "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Download FreeTurn client
+      - name: Build FreeTurn preview client
         shell: pwsh
+        working-directory: fturn-core
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
         run: |
           $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force -Path "build/bin" | Out-Null
-          $url = "https://github.com/LiTarPc/fturn-core/releases/latest/download/client-windows-amd64.exe"
-          curl.exe -fL --retry 3 --retry-delay 2 $url -o "build/bin/client-windows-amd64.exe"
-          if ($LASTEXITCODE -ne 0) { throw "FreeTurn download failed with exit code $LASTEXITCODE" }
-          $file = Get-Item "build/bin/client-windows-amd64.exe"
-          if ($file.Length -lt 1MB) { throw "Downloaded FreeTurn client is unexpectedly small: $($file.Length) bytes" }
+          New-Item -ItemType Directory -Force -Path "../build/bin" | Out-Null
+          go test ./internal/provider/vk/internal/vkauth
+          if ($LASTEXITCODE -ne 0) { throw "FreeTurn auth tests failed" }
+          go build -trimpath -ldflags "-s -w -checklinkname=0 -X main.version=4.1.1-preview" -o "../build/bin/client-windows-amd64.exe" ./cmd/client
+          if ($LASTEXITCODE -ne 0) { throw "FreeTurn client build failed" }
+          $file = Get-Item "../build/bin/client-windows-amd64.exe"
+          if ($file.Length -lt 1MB) { throw "Built FreeTurn client is unexpectedly small: $($file.Length) bytes" }
           Write-Host "FreeTurn client: $($file.Length) bytes"
 
       - name: Download sing-box
@@ -81,7 +95,13 @@ jobs:
 
       - name: Run backend tests
         shell: pwsh
-        run: go test ./backend
+        run: |
+          go test ./backend
+          if ($LASTEXITCODE -ne 0) { throw "backend tests failed" }
+          $env:SING_BOX_BIN = (Resolve-Path "sing-box-$env:SINGBOX_VERSION-windows-amd64/sing-box.exe").Path
+          $env:SING_BOX_EXPECTED_VERSION = $env:SINGBOX_VERSION
+          go test -tags=integration ./backend -run TestSingBoxSchema -count=1
+          if ($LASTEXITCODE -ne 0) { throw "sing-box schema tests failed" }
 
       - name: Build Wails NSIS installer
         shell: pwsh
@@ -143,6 +163,7 @@ jobs:
 
             - Commit: `${{ github.sha }}`
             - sing-box: `${{ env.SINGBOX_VERSION }}`
+            - FreeTurn core: `${{ env.FREETURN_CORE_COMMIT }}`
             - Windows: x64
             - Installer: NSIS
 

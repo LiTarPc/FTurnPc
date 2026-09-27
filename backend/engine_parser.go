@@ -30,7 +30,11 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		e.trackFreeTurnStream(line)
-		e.trackTurnRoute(line)
+		if uiManagesTurnRoutes() {
+			e.trackManagedTurnServer(line)
+		} else {
+			e.trackTurnRoute(line)
+		}
 
 		if strings.Contains(line, "all VK credentials failed") {
 			emitSessionLog(e.appCtx, "WARN", "[SB] Ошибка получения токена VK для потока. Ожидание автоматической повторной попытки...")
@@ -44,7 +48,13 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 		}
 
 		if isFreeTurnReadyLine(line) {
+			e.mu.Lock()
+			e.ftReady = true
+			e.mu.Unlock()
 			e.startSingboxWhenReady()
+		}
+		if !safeFreeTurnLogLine(line) {
+			continue
 		}
 
 		bounded := boundedLogLine(line, 4096)
@@ -63,6 +73,107 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 	if err := scanner.Err(); err != nil {
 		log.Printf("[FT] Ошибка чтения логов FreeTurn: %v", err)
 	}
+}
+
+// -debug is needed for DTLS readiness and TURN candidate discovery, but the
+// core also prints captcha request bodies and browser cookies at that level.
+// Parse those lines internally, then keep them out of persisted/UI logs.
+func safeFreeTurnLogLine(line string) bool {
+	lower := strings.ToLower(line)
+	for _, marker := range []string{"session_token", "access_token", "client_secret", "cookie =", "cookie:", "authorization =", "ft_admin_session"} {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+	if strings.Contains(lower, "[captcha proxy]") {
+		return false
+	}
+	if strings.Contains(lower, "[captcha]") {
+		for _, marker := range []string{"solving captcha (", "solving vk smart captcha automatically", "solver succeeded", "triggering manual captcha", "got token from browser"} {
+			if strings.Contains(lower, marker) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// FreeTurn announces TURN candidates before, or at latest when, allocation is
+// complete. Install a physical /32 before sing-box changes the default route.
+func (e *FreeturnEngine) trackManagedTurnServer(line string) {
+	ip := freeTurnServerIP(line)
+	if ip == "" {
+		return
+	}
+	e.turnRoutesMu.Lock()
+	if _, seen := e.turnRoutes[ip]; seen {
+		e.turnRoutesMu.Unlock()
+		return
+	}
+	if time.Since(e.turnRouteFailures[ip]) < 10*time.Second {
+		e.turnRoutesMu.Unlock()
+		return
+	}
+	route, err := addManagedTurnRoute(ip)
+	if route != nil {
+		if e.managedTurnRoutes == nil {
+			e.managedTurnRoutes = make(map[string]managedTurnRoute)
+		}
+		e.managedTurnRoutes[ip] = *route
+	}
+	if err == nil {
+		delete(e.turnRouteFailures, ip)
+		if e.turnRoutes == nil {
+			e.turnRoutes = make(map[string]struct{})
+		}
+		e.turnRoutes[ip] = struct{}{}
+	} else {
+		if e.turnRouteFailures == nil {
+			e.turnRouteFailures = make(map[string]time.Time)
+		}
+		e.turnRouteFailures[ip] = time.Now()
+	}
+	e.turnRoutesMu.Unlock()
+	if err != nil {
+		emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] Маршрут к TURN %s не установлен: %v", ip, err))
+		return
+	}
+	if route != nil {
+		emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[FT] TURN %s/32 через %s (interface %d)", ip, route.gateway, route.ifIndex))
+	}
+	e.mu.Lock()
+	ready := e.ftReady
+	e.mu.Unlock()
+	if ready {
+		e.startSingboxWhenReady()
+	}
+}
+
+func freeTurnServerIP(line string) string {
+	var value string
+	if i := strings.Index(line, "server="); i >= 0 && strings.Contains(strings.ToLower(line), "turn allocation up") {
+		value = line[i+len("server="):]
+	} else if i := strings.Index(line, "TURN server IP:"); i >= 0 {
+		value = line[i+len("TURN server IP:"):]
+	} else if i := strings.Index(strings.ToLower(line), "selected turn:"); i >= 0 {
+		value = line[i+len("selected turn:"):]
+	} else if strings.Contains(line, "Resolved TURN server") || strings.Contains(line, "Resolved STUN server") {
+		if _, after, ok := strings.Cut(line, " to "); ok {
+			value = after
+		}
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value, _, _ = strings.Cut(value, ":")
+	value = strings.Trim(value, " )\"'\r\n\t")
+	ip := net.ParseIP(value)
+	if ip == nil || ip.To4() == nil || ip.IsLoopback() {
+		return ""
+	}
+	return ip.String()
 }
 
 // trackTurnRoute mirrors routes that FreeTurn says it intends to manage. We
@@ -117,8 +228,8 @@ func (e *FreeturnEngine) trackFreeTurnStream(line string) {
 		strings.Contains(lower, "] connected (active:")
 	inactive := strings.Contains(lower, "turn allocation released") ||
 		strings.Contains(lower, "] disconnected") ||
-		strings.Contains(lower, "closed") ||
-		strings.Contains(lower, "failed")
+		strings.Contains(lower, "closed dtls connection") ||
+		strings.Contains(lower, "] closed")
 
 	if !active && !inactive {
 		return
@@ -159,21 +270,16 @@ func freeTurnStreamID(line string) string {
 
 var activeConnectionCountRE = regexp.MustCompile(`(?i)activeConnectionCount[^0-9]+([0-9]+)`)
 
-// isFreeTurnReadyLine recognises stable INFO-level readiness signals from both
-// FreeTurn relay modes and older client versions.
+// isFreeTurnReadyLine recognises established transport readiness signals from
+// both FreeTurn relay modes and older client versions.
 //
 // "Established DTLS connection" is currently a Debugf line in FreeTurn UDP
 // mode, so a normal production client never prints it unless -debug is enabled.
-// "TURN allocation up" is the first reliable INFO-level UDP signal. The local
-// UDP listener is already bound by then, so sing-box may safely start sending
-// datagrams while DTLS finishes establishing.
+// "TURN allocation up" only means the relay allocated an address. It can be
+// followed by DTLS or TURN failure, so wait for the debug-level DTLS handshake
+// or the explicit stream-ready signal before starting sing-box.
 func isFreeTurnReadyLine(line string) bool {
 	lower := strings.ToLower(line)
-
-	// UDP mode: WireGuard / Hysteria2 / TUIC.
-	if strings.Contains(lower, "turn allocation up") {
-		return true
-	}
 
 	// TCP mode: VLESS / VMess / Trojan / Shadowsocks. Wait for a real pooled
 	// session rather than merely for the local TCP listener to open.
@@ -196,9 +302,23 @@ func isFreeTurnReadyLine(line string) bool {
 
 func (e *FreeturnEngine) startSingboxWhenReady() {
 	e.mu.Lock()
-	if e.sbApplied || e.sbStarting || e.sessionClosing || e.userStopped || e.cmd == nil {
+	if !e.ftReady || e.sbApplied || e.sbStarting || e.sessionClosing || e.userStopped || e.cmd == nil {
 		e.mu.Unlock()
 		return
+	}
+	if uiManagesTurnRoutes() {
+		e.turnRoutesMu.Lock()
+		hasTurnRoute := len(e.turnRoutes) > 0
+		e.turnRoutesMu.Unlock()
+		if !hasTurnRoute {
+			warn := !e.routePendingWarned
+			e.routePendingWarned = true
+			e.mu.Unlock()
+			if warn {
+				emitSessionLog(e.appCtx, "WARN", "[FT] DTLS готов, но маршрут к TURN ещё не установлен; ожидаем IP TURN-сервера")
+			}
+			return
+		}
 	}
 	e.sbStarting = true
 	cfgPath := e.sbCfgPath
@@ -213,7 +333,7 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 		defer e.wg.Done()
 		emitSessionLog(e.appCtx, "INFO", "[SB] Запуск sing-box TUN...")
 
-		if err := e.sbTun.Start(cfgPath); err != nil {
+		if err := e.startSingboxWithAdapterRetry(cfgPath); err != nil {
 			e.mu.Lock()
 			e.sbStarting = false
 			e.sbApplied = false
@@ -228,6 +348,25 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 			e.fail(fmt.Errorf("sing-box startup failed: %w", err))
 			return
 		}
+		if uiManagesTurnRoutes() {
+			e.turnRoutesMu.Lock()
+			ips := make([]string, 0, len(e.turnRoutes))
+			for ip := range e.turnRoutes {
+				ips = append(ips, ip)
+			}
+			if e.protectedPeerIP != "" {
+				ips = append(ips, e.protectedPeerIP)
+			}
+			e.turnRoutesMu.Unlock()
+			if err := verifyManagedTurnRoutes(ips); err != nil {
+				msg := fmt.Sprintf("[FT] Маршрут TURN изменился после запуска sing-box: %v", err)
+				emitSessionLog(e.appCtx, "ERROR", msg)
+				runtime.EventsEmit(e.appCtx, "error", msg)
+				e.sbTun.Stop()
+				e.fail(err)
+				return
+			}
+		}
 
 		e.mu.Lock()
 		if e.sessionClosing || e.userStopped || e.cmd == nil {
@@ -240,14 +379,51 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 		e.sbApplied = true
 		e.mu.Unlock()
 
+		// Establish the traffic baseline before consumers are told that the
+		// tunnel is ready. Otherwise traffic started immediately in response to
+		// the running event can slip in ahead of the baseline.
+		e.startStatsLoop()
 		runtime.EventsEmit(e.appCtx, "state_changed", "running", "")
 		emitSessionLog(e.appCtx, "INFO", "[SB] Туннель активен ✓")
 		if e.onTray != nil {
 			e.onTray(true, 0, 0, 0)
 		}
-		e.startStatsLoop()
 		go e.emitNATInfoAfterDelay()
 	}()
+}
+
+func (e *FreeturnEngine) startSingboxWithAdapterRetry(cfgPath string) error {
+	err := e.sbTun.Start(cfgPath)
+	if !isTunAdapterCollision(err) {
+		return err
+	}
+
+	newName := newSessionTunName()
+	if newName == e.tunName {
+		return err
+	}
+	if updateErr := replaceSessionTunName(cfgPath, newName); updateErr != nil {
+		return fmt.Errorf("TUN adapter conflict (%v); retry config: %w", err, updateErr)
+	}
+	e.mu.Lock()
+	if e.sessionClosing || e.userStopped {
+		e.mu.Unlock()
+		return err
+	}
+	e.tunName = newName
+	e.sbTun.tunName = newName
+	e.mu.Unlock()
+	emitSessionLog(e.appCtx, "WARN", "[SB] Windows TUN не открылся; повторяем запуск sing-box с новым именем адаптера")
+
+	// Allow Windows to release the failed device setup before another attempt.
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-e.appCtx.Done():
+		return e.appCtx.Err()
+	}
+	return e.sbTun.Start(cfgPath)
 }
 
 func (e *FreeturnEngine) emitNATInfoAfterDelay() {

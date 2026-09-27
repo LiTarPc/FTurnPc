@@ -126,6 +126,24 @@ func TestSingBoxSchema_GeneratedConfigMatrix(t *testing.T) {
 				"vless://00000000-0000-0000-0000-000000000001@origin.example:443?security=tls&sni=origin.example")},
 			params: ConnectParams{BypassRu: true},
 		},
+		{
+			name: "custom AdGuard UDP DNS",
+			profile: &ProfileData{SB: sbIntegrationRawString(t,
+				"vless://00000000-0000-0000-0000-000000000001@origin.example:443?security=tls&sni=origin.example")},
+			params: ConnectParams{DNSServer: "94.140.14.14"},
+		},
+		{
+			name: "custom AdGuard DoT DNS",
+			profile: &ProfileData{SB: sbIntegrationRawString(t,
+				"vless://00000000-0000-0000-0000-000000000001@origin.example:443?security=tls&sni=origin.example")},
+			params: ConnectParams{DNSServer: "tls://dns.adguard-dns.com"},
+		},
+		{
+			name: "custom AdGuard DoH DNS",
+			profile: &ProfileData{SB: sbIntegrationRawString(t,
+				"vless://00000000-0000-0000-0000-000000000001@origin.example:443?security=tls&sni=origin.example")},
+			params: ConnectParams{DNSServer: "https://dns.adguard-dns.com/dns-query"},
+		},
 	}
 
 	for _, tt := range tests {

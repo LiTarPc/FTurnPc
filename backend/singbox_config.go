@@ -833,10 +833,14 @@ func assembleConfig(outbounds []interface{}, endpoints []interface{}, dnsRemote 
 		})
 	}
 
+	tunName := params.tunName
+	if tunName == "" {
+		tunName = singTunName
+	}
 	tunInbound := map[string]interface{}{
 		"type":           "tun",
 		"tag":            "tun-in",
-		"interface_name": singTunName,
+		"interface_name": tunName,
 		"address":        []string{"172.19.0.1/30"},
 		"mtu":            tunMTU,
 		"auto_route":     true,
@@ -849,11 +853,13 @@ func assembleConfig(outbounds []interface{}, endpoints []interface{}, dnsRemote 
 		tunInbound["auto_redirect"] = true
 	}
 
+	remoteDNS, err := buildRemoteDNSServer(params.DNSServer, dnsRemote, proxyTag)
+	if err != nil {
+		return nil, err
+	}
 	dnsConfig := map[string]interface{}{
 		"servers": []interface{}{
-			map[string]interface{}{
-				"type": "udp", "tag": "dns-remote", "server": dnsRemote, "detour": proxyTag,
-			},
+			remoteDNS,
 			map[string]interface{}{"type": "local", "tag": "dns-local"},
 		},
 		"final":    "dns-remote",

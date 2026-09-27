@@ -90,7 +90,7 @@ func (a *App) CheckVPN() []string {
 			continue
 		}
 		n := strings.ToLower(iface.Name)
-		if n == wgIface || n == singTunName {
+		if n == wgIface || n == singTunName || strings.HasPrefix(n, "fturn-") {
 			continue
 		}
 		if strings.HasPrefix(n, "tun") || strings.HasPrefix(n, "tap") || strings.HasPrefix(n, "wg") ||

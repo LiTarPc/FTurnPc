@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { IconApps, IconDeviceFloppy, IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { GetBypassApps, SetBypassApps } from '../../wailsjs/go/backend/App';
 import { toastStore } from '../lib/stores/toastStore';
+import { settingsStore } from '../lib/store';
+import { dnsServerError } from '../lib/dns';
+import DnsServerControl from '../components/DnsServerControl';
 
 interface Props {
   onClose: () => void;
@@ -20,6 +23,7 @@ export default function BypassApps({ onClose }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [dnsRaw, setDnsRaw] = useState(settingsStore.get().dnsServer ?? '');
 
   useEffect(() => {
     GetBypassApps()
@@ -53,9 +57,15 @@ export default function BypassApps({ onClose }: Props) {
   };
 
   const save = async () => {
+    const dnsError = dnsServerError(dnsRaw);
+    if (dnsError) {
+      toastStore.show(dnsError, 3500);
+      return;
+    }
     setSaving(true);
     try {
       await SetBypassApps(apps);
+      settingsStore.save({ ...settingsStore.get(), dnsServer: dnsRaw.trim() });
       toastStore.show('Список bypass сохранён', 2500);
       onClose();
     } catch (err: any) {
@@ -236,6 +246,8 @@ export default function BypassApps({ onClose }: Props) {
             вроде <b>steam.exe</b> или вставить полный путь — будет сохранено только имя файла.
             Изменения применяются при следующем подключении или автоматическом переподключении.
           </div>
+
+          <DnsServerControl value={dnsRaw} onChange={setDnsRaw} />
 
           <div className="bp-input-row">
             <input

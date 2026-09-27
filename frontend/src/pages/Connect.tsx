@@ -69,7 +69,8 @@ export default function Connect() {
       }
     };
 
-    EventsOn('stats', handleStats);
+    const unsubscribe = EventsOn('stats', handleStats);
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
@@ -235,7 +236,7 @@ export default function Connect() {
     logStore.clear();
     logStore.push('INFO', `Подключение к профилю: ${cur.name}`);
     try {
-      const workers = cur.power || 10;
+      const workers = Math.max(10, cur.power || 10);
       const bypassRu = settingsStore.get().bypassRu;
       const mtu = Number(settingsStore.get().mtu) || 1300;
       await WailsConnect({
@@ -243,6 +244,7 @@ export default function Connect() {
         workers,
         mtu,
         bypassRu,
+        dnsServer: settingsStore.get().dnsServer.trim(),
       });
       logStore.push('INFO', 'WailsConnect вернул OK (процесс запущен)');
     } catch (e: any) {
