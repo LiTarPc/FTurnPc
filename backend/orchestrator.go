@@ -234,6 +234,7 @@ type ConnectParams struct {
 	MTU       int    `json:"mtu,omitempty"`
 	BypassRu  bool   `json:"bypassRu,omitempty"`
 	DNSServer string `json:"dnsServer,omitempty"`
+	tunName   string
 }
 
 func loadProfile(name string) (*ProfileData, error) {

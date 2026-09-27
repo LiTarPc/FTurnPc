@@ -833,10 +833,14 @@ func assembleConfig(outbounds []interface{}, endpoints []interface{}, dnsRemote 
 		})
 	}
 
+	tunName := params.tunName
+	if tunName == "" {
+		tunName = singTunName
+	}
 	tunInbound := map[string]interface{}{
 		"type":           "tun",
 		"tag":            "tun-in",
-		"interface_name": singTunName,
+		"interface_name": tunName,
 		"address":        []string{"172.19.0.1/30"},
 		"mtu":            tunMTU,
 		"auto_route":     true,

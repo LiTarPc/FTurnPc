@@ -333,7 +333,7 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 		defer e.wg.Done()
 		emitSessionLog(e.appCtx, "INFO", "[SB] Запуск sing-box TUN...")
 
-		if err := e.sbTun.Start(cfgPath); err != nil {
+		if err := e.startSingboxWithAdapterRetry(cfgPath); err != nil {
 			e.mu.Lock()
 			e.sbStarting = false
 			e.sbApplied = false
@@ -390,6 +390,40 @@ func (e *FreeturnEngine) startSingboxWhenReady() {
 		}
 		go e.emitNATInfoAfterDelay()
 	}()
+}
+
+func (e *FreeturnEngine) startSingboxWithAdapterRetry(cfgPath string) error {
+	err := e.sbTun.Start(cfgPath)
+	if !isTunAdapterCollision(err) {
+		return err
+	}
+
+	newName := newSessionTunName()
+	if newName == e.tunName {
+		return err
+	}
+	if updateErr := replaceSessionTunName(cfgPath, newName); updateErr != nil {
+		return fmt.Errorf("TUN adapter conflict (%v); retry config: %w", err, updateErr)
+	}
+	e.mu.Lock()
+	if e.sessionClosing || e.userStopped {
+		e.mu.Unlock()
+		return err
+	}
+	e.tunName = newName
+	e.sbTun.tunName = newName
+	e.mu.Unlock()
+	emitSessionLog(e.appCtx, "WARN", "[SB] Windows TUN не открылся; повторяем запуск sing-box с новым именем адаптера")
+
+	// Allow Windows to release the failed device setup before another attempt.
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-e.appCtx.Done():
+		return e.appCtx.Err()
+	}
+	return e.sbTun.Start(cfgPath)
 }
 
 func (e *FreeturnEngine) emitNATInfoAfterDelay() {

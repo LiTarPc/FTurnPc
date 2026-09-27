@@ -37,6 +37,7 @@ type FreeturnEngine struct {
 
 	sbTun              *SingboxTun
 	sbCfgPath          string
+	tunName            string
 	sbApplied          bool
 	sbStarting         bool
 	ftReady            bool
@@ -85,6 +86,9 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.ftReady = false
 	e.routePendingWarned = false
 	e.statsStop = nil
+	e.tunName = newSessionTunName()
+	e.sbTun.tunName = e.tunName
+	p.tunName = e.tunName
 	e.muStreams.Lock()
 	e.activeStreams = make(map[string]bool)
 	e.muStreams.Unlock()

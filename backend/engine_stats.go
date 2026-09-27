@@ -70,7 +70,11 @@ func (e *FreeturnEngine) startStatsLoop() {
 	// Capture the baseline before the first one-second tick. Waiting for the
 	// ticker here used to discard every byte transferred during the first
 	// second of a connection.
-	initialRx, initialTx, initialErr := getInterfaceBytes(singTunName)
+	tunName := e.tunName
+	if tunName == "" {
+		tunName = singTunName
+	}
+	initialRx, initialTx, initialErr := getInterfaceBytes(tunName)
 	var totals trafficTotals
 	if initialErr == nil {
 		totals = newTrafficTotals(initialRx, initialTx)
@@ -83,7 +87,7 @@ func (e *FreeturnEngine) startStatsLoop() {
 		for {
 			select {
 			case <-t.C:
-				rx, tx, err := getInterfaceBytes(singTunName)
+				rx, tx, err := getInterfaceBytes(tunName)
 				if err != nil {
 					continue
 				}

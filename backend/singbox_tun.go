@@ -31,6 +31,7 @@ var (
 // SingboxTun manages the external sing-box process and its TUN lifecycle.
 type SingboxTun struct {
 	appCtx context.Context
+	tunName string
 
 	mu            sync.Mutex
 	cmd           *exec.Cmd
@@ -176,7 +177,11 @@ func (t *SingboxTun) Start(cfgPath string) error {
 			t.started = true
 			t.starting = false
 			t.mu.Unlock()
-			log.Printf("[SB] sing-box запущен, TUN %s создан", singTunName)
+			name := t.tunName
+			if name == "" {
+				name = singTunName
+			}
+			log.Printf("[SB] sing-box запущен, TUN %s создан", name)
 			return nil
 		case errMsg := <-errCh:
 			t.stopProcess(cmd, cancel, done)
