@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { IconApps, IconDeviceFloppy, IconPlus, IconTrash, IconX } from '@tabler/icons-react';
-import { GetBypassApps, SetBypassApps } from '../../wailsjs/go/backend/App';
+import { IconActivity, IconApps, IconDeviceFloppy, IconPlus, IconTrash, IconX } from '@tabler/icons-react';
+import { CheckNAT, GetBypassApps, SetBypassApps } from '../../wailsjs/go/backend/App';
 import { toastStore } from '../lib/stores/toastStore';
+import { tunnelStore } from '../lib/stores/tunnelStore';
 import { settingsStore } from '../lib/store';
 import { dnsServerError } from '../lib/dns';
 import DnsServerControl from '../components/DnsServerControl';
@@ -24,6 +25,16 @@ export default function BypassApps({ onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dnsRaw, setDnsRaw] = useState(settingsStore.get().dnsServer ?? '');
+  const [bypassRu, setBypassRu] = useState(settingsStore.get().bypassRu);
+  const [mtuRaw, setMtuRaw] = useState(String(settingsStore.get().mtu ?? 1300));
+  const [tunnelState, setTunnelState] = useState(() => tunnelStore.get());
+  const [natResult, setNatResult] = useState<any>(null);
+  const [natLoading, setNatLoading] = useState(false);
+  const mtu = Number(mtuRaw);
+  const mtuValid = Number.isInteger(mtu) && mtu >= 576 && mtu <= 1500;
+  const mtuLocked = tunnelState === 'connected' || tunnelState === 'connecting';
+
+  useEffect(() => tunnelStore.subscribe(setTunnelState), []);
 
   useEffect(() => {
     GetBypassApps()
@@ -56,17 +67,32 @@ export default function BypassApps({ onClose }: Props) {
     setApps(prev => prev.filter(item => item !== name));
   };
 
+  const checkNAT = async () => {
+    setNatLoading(true);
+    try {
+      setNatResult(await CheckNAT());
+    } catch (err: any) {
+      setNatResult({ natType: 'Ошибка', details: err?.message || String(err) });
+    } finally {
+      setNatLoading(false);
+    }
+  };
+
   const save = async () => {
     const dnsError = dnsServerError(dnsRaw);
     if (dnsError) {
       toastStore.show(dnsError, 3500);
       return;
     }
+    if (!mtuValid) {
+      toastStore.show('MTU должен быть целым числом от 576 до 1500', 3500);
+      return;
+    }
     setSaving(true);
     try {
       await SetBypassApps(apps);
-      settingsStore.save({ ...settingsStore.get(), dnsServer: dnsRaw.trim() });
-      toastStore.show('Список bypass сохранён', 2500);
+      settingsStore.save({ ...settingsStore.get(), bypassRu, dnsServer: dnsRaw.trim(), mtu });
+      toastStore.show('Настройки обхода сохранены', 2500);
       onClose();
     } catch (err: any) {
       toastStore.show(`Ошибка сохранения: ${err?.message || String(err)}`, 4500);
@@ -108,6 +134,21 @@ export default function BypassApps({ onClose }: Props) {
           color: var(--text);
           margin-bottom: 8px;
         }
+        .bp-body { min-height: 0; overflow-y: auto; padding-right: 3px; }
+        .bp-section-title { color: var(--text); font-size: 12px; font-weight: 700; margin: 13px 0 8px; }
+        .bp-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text); font-size: 12px; padding: 8px 0; }
+        .bp-setting-hint { color: var(--text-3); font-size: 10px; line-height: 1.45; margin-top: 3px; }
+        .bp-toggle { width: 44px; height: 24px; border: 0; border-radius: 50px; background: var(--toggle-off); position: relative; cursor: pointer; flex-shrink: 0; }
+        .bp-toggle[aria-checked="true"] { background: var(--toggle-on); }
+        .bp-toggle::after { content: ''; position: absolute; left: 4px; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-3); transition: left 0.2s; }
+        .bp-toggle[aria-checked="true"]::after { left: 24px; background: #fff; }
+        .bp-advanced { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
+        .bp-advanced summary { color: var(--text-3); font-size: 12px; font-weight: 600; cursor: pointer; }
+        .bp-mtu { width: 86px; padding: 6px 9px; border: 1px solid var(--input-border); border-radius: var(--border-radius); background: var(--input-bg); color: var(--text); font: inherit; font-size: 12px; text-align: right; }
+        .bp-mtu:invalid { border-color: #ef4444; }
+        .bp-nat { margin-top: 10px; padding: 10px; border-radius: var(--border-radius); background: var(--seg-bg); color: var(--text); font-size: 11px; }
+        .bp-nat-result { color: var(--accent); font-weight: 700; margin: 5px 0 2px; }
+        .bp-nat-button { width: 100%; margin-top: 8px; padding: 7px; border: 1px solid var(--border); border-radius: var(--border-radius); background: var(--button); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
         .bp-title {
           flex: 1;
           font-size: 15px;
@@ -235,56 +276,101 @@ export default function BypassApps({ onClose }: Props) {
         <div className="bp-modal" onMouseDown={e => e.stopPropagation()}>
           <div className="bp-header">
             <IconApps size={20} stroke={2} />
-            <span className="bp-title">Bypass приложений</span>
+            <span className="bp-title">Обход</span>
             <button className="bp-close" onClick={onClose} title="Закрыть">
               <IconX size={18} />
             </button>
           </div>
 
-          <div className="bp-description">
-            Указанные процессы будут направляться напрямую, в обход VPN. Можно ввести имя процесса
-            вроде <b>steam.exe</b> или вставить полный путь — будет сохранено только имя файла.
-            Изменения применяются при следующем подключении или автоматическом переподключении.
-          </div>
+          <div className="bp-body">
+            <div className="bp-setting-row">
+              <div>
+                <strong>Обход RU-ресурсов</strong>
+                <div className="bp-setting-hint">Российские домены и адреса направляются напрямую.</div>
+              </div>
+              <button className="bp-toggle" role="switch" aria-label="Обход RU-ресурсов" aria-checked={bypassRu} onClick={() => setBypassRu(value => !value)} />
+            </div>
 
-          <DnsServerControl value={dnsRaw} onChange={setDnsRaw} />
+            <DnsServerControl value={dnsRaw} onChange={setDnsRaw} />
 
-          <div className="bp-input-row">
-            <input
-              className="bp-input"
-              value={input}
-              disabled={loading}
-              placeholder="steam.exe"
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  add();
-                }
-              }}
-              autoFocus
-            />
-            <button className="bp-add" onClick={add} disabled={!normalizedInput || loading} title="Добавить">
-              <IconPlus size={18} />
-            </button>
-          </div>
+            <div className="bp-section-title">Приложения напрямую</div>
+            <div className="bp-description">
+              Введите имя процесса, например <b>steam.exe</b>, или полный путь — сохранится только имя файла.
+              Изменения применятся при следующем подключении.
+            </div>
 
-          <div className="bp-list">
-            {loading ? (
-              <div className="bp-empty">Загрузка...</div>
-            ) : apps.length === 0 ? (
-              <div className="bp-empty">Список пуст</div>
-            ) : (
-              apps.map(name => (
-                <div className="bp-item" key={name.toLowerCase()}>
-                  <IconApps size={16} stroke={1.8} style={{ color: 'var(--text-3)' }} />
-                  <span className="bp-name" title={name}>{name}</span>
-                  <button className="bp-remove" onClick={() => remove(name)} title="Удалить">
-                    <IconTrash size={16} />
-                  </button>
+            <div className="bp-input-row">
+              <input
+                className="bp-input"
+                value={input}
+                disabled={loading}
+                placeholder="steam.exe"
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    add();
+                  }
+                }}
+                autoFocus
+              />
+              <button className="bp-add" onClick={add} disabled={!normalizedInput || loading} title="Добавить">
+                <IconPlus size={18} />
+              </button>
+            </div>
+
+            <div className="bp-list">
+              {loading ? (
+                <div className="bp-empty">Загрузка...</div>
+              ) : apps.length === 0 ? (
+                <div className="bp-empty">Список пуст</div>
+              ) : (
+                apps.map(name => (
+                  <div className="bp-item" key={name.toLowerCase()}>
+                    <IconApps size={16} stroke={1.8} style={{ color: 'var(--text-3)' }} />
+                    <span className="bp-name" title={name}>{name}</span>
+                    <button className="bp-remove" onClick={() => remove(name)} title="Удалить">
+                      <IconTrash size={16} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <details className="bp-advanced">
+              <summary>Дополнительно: MTU и диагностика NAT</summary>
+              <div className="bp-setting-row">
+                <div>
+                  <strong>MTU (Clamping)</strong>
+                  <div className="bp-setting-hint">Применится при следующем подключении.</div>
                 </div>
-              ))
-            )}
+                <input
+                  className="bp-mtu"
+                  type="number" min={576} max={1500} step={1}
+                  value={mtuRaw}
+                  disabled={mtuLocked}
+                  onChange={event => setMtuRaw(event.target.value)}
+                  onBlur={() => {
+                    const value = Number(mtuRaw);
+                    if (Number.isFinite(value)) setMtuRaw(String(Math.max(576, Math.min(1500, Math.round(value)))));
+                  }}
+                />
+              </div>
+              {mtuLocked && <div className="bp-setting-hint">MTU нельзя менять во время подключения.</div>}
+              <div className="bp-nat">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}><IconActivity size={14} /> Диагностика STUN NAT</div>
+                {natResult ? (
+                  <>
+                    <div className="bp-nat-result">{natResult.natType}</div>
+                    <div className="bp-setting-hint">{natResult.details}</div>
+                    {natResult.mappedIp && <div className="bp-setting-hint">Внешний адрес: {natResult.mappedIp}:{natResult.mappedPort}</div>}
+                  </>
+                ) : <div className="bp-setting-hint">Проверка типа NAT в сети.</div>}
+                <button className="bp-nat-button" onClick={checkNAT} disabled={natLoading}>
+                  {natLoading ? 'Тестирование...' : 'Проверить тип NAT'}
+                </button>
+              </div>
+            </details>
           </div>
 
           <div className="bp-footer">
