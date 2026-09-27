@@ -120,7 +120,7 @@ export default function Sidebar({ onSettings, onBypass, pathname: pathnameProp }
               <span className="nav-label">{label}</span>
             </button>
           ))}
-          <button className="nav-btn" onClick={onBypass} title="Bypass приложений">
+          <button className="nav-btn" onClick={onBypass} title="Обход и сеть">
             <IconApps stroke={2} size={22} />
             <span className="nav-label">обход</span>
           </button>
