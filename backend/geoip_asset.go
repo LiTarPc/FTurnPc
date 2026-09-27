@@ -17,6 +17,16 @@ func installEmbeddedGeoIPRuSRS(data []byte) (string, error) {
 	}
 
 	dst := filepath.Join(configDir(), "geoip-ru.srs")
+	customTxt := filepath.Join(configDir(), "geoip-ru.txt")
+	// A downloaded IPdeny list belongs to the user and must survive app updates.
+	// It is installed together with its compiled SRS by UpdateRuCIDR.
+	if txt, err := os.ReadFile(customTxt); err == nil {
+		if cidrs, err := parseRuCIDRs(txt); err == nil && len(cidrs) >= minRuCIDRCount {
+			if st, err := os.Stat(dst); err == nil && st.Size() > 0 {
+				return dst, nil
+			}
+		}
+	}
 	if existing, err := os.ReadFile(dst); err == nil && bytes.Equal(existing, data) {
 		return dst, nil
 	}

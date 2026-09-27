@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { IconActivity, IconApps, IconDeviceFloppy, IconPlus, IconTrash, IconX } from '@tabler/icons-react';
-import { CheckNAT, GetBypassApps, SetBypassApps } from '../../wailsjs/go/backend/App';
+import { IconActivity, IconApps, IconDeviceFloppy, IconPlus, IconRefresh, IconTrash, IconX } from '@tabler/icons-react';
+import { CheckNAT, GetBypassApps, GetRuCIDRStatus, SetBypassApps, UpdateRuCIDR } from '../../wailsjs/go/backend/App';
 import { toastStore } from '../lib/stores/toastStore';
 import { tunnelStore } from '../lib/stores/tunnelStore';
 import { settingsStore } from '../lib/store';
@@ -10,6 +10,8 @@ import DnsServerControl from '../components/DnsServerControl';
 interface Props {
   onClose: () => void;
 }
+
+type RuCIDRStatus = { count: number; source: string; updatedAt?: string };
 
 function normalizeClientValue(raw: string): string {
   let value = raw.trim().replace(/^['"]|['"]$/g, '');
@@ -30,6 +32,8 @@ export default function BypassApps({ onClose }: Props) {
   const [tunnelState, setTunnelState] = useState(() => tunnelStore.get());
   const [natResult, setNatResult] = useState<any>(null);
   const [natLoading, setNatLoading] = useState(false);
+  const [ruStatus, setRuStatus] = useState<RuCIDRStatus | null>(null);
+  const [ruUpdating, setRuUpdating] = useState(false);
   const mtu = Number(mtuRaw);
   const mtuValid = Number.isInteger(mtu) && mtu >= 576 && mtu <= 1500;
   const mtuLocked = tunnelState === 'connected' || tunnelState === 'connecting';
@@ -44,6 +48,10 @@ export default function BypassApps({ onClose }: Props) {
         toastStore.show('Не удалось загрузить список bypass', 3500);
       })
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    GetRuCIDRStatus().then((status: RuCIDRStatus) => setRuStatus(status)).catch(console.error);
   }, []);
 
   const normalizedInput = useMemo(() => normalizeClientValue(input), [input]);
@@ -75,6 +83,19 @@ export default function BypassApps({ onClose }: Props) {
       setNatResult({ natType: 'Ошибка', details: err?.message || String(err) });
     } finally {
       setNatLoading(false);
+    }
+  };
+
+  const updateRuCIDR = async () => {
+    setRuUpdating(true);
+    try {
+      const status = await UpdateRuCIDR();
+      setRuStatus(status);
+      toastStore.show(`RU CIDR обновлены: ${status.count} сетей`, 3500);
+    } catch (err: any) {
+      toastStore.show(`Ошибка обновления RU CIDR: ${err?.message || String(err)}`, 5000);
+    } finally {
+      setRuUpdating(false);
     }
   };
 
@@ -149,6 +170,7 @@ export default function BypassApps({ onClose }: Props) {
         .bp-nat { margin-top: 10px; padding: 10px; border-radius: var(--border-radius); background: var(--seg-bg); color: var(--text); font-size: 11px; }
         .bp-nat-result { color: var(--accent); font-weight: 700; margin: 5px 0 2px; }
         .bp-nat-button { width: 100%; margin-top: 8px; padding: 7px; border: 1px solid var(--border); border-radius: var(--border-radius); background: var(--button); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .bp-nat-button:disabled { opacity: 0.55; cursor: default; }
         .bp-title {
           flex: 1;
           font-size: 15px;
@@ -289,6 +311,18 @@ export default function BypassApps({ onClose }: Props) {
                 <div className="bp-setting-hint">Российские домены и адреса направляются напрямую.</div>
               </div>
               <button className="bp-toggle" role="switch" aria-label="Обход RU-ресурсов" aria-checked={bypassRu} onClick={() => setBypassRu(value => !value)} />
+            </div>
+
+            <div className="bp-nat">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}><IconRefresh size={14} /> RU CIDR</div>
+              <div className="bp-setting-hint">
+                {ruStatus ? (ruStatus.count > 0 ? `${ruStatus.source}: ${ruStatus.count} IPv4-сетей` : `${ruStatus.source}: список доступен в приложении`) : 'Загрузка сведений...'}
+                {ruStatus?.updatedAt ? ` · обновлено ${new Date(ruStatus.updatedAt).toLocaleString('ru-RU')}` : ''}
+              </div>
+              <div className="bp-setting-hint">Источник: IPdeny. Обновление доступно без активного подключения; новые правила применятся при следующем подключении.</div>
+              <button className="bp-nat-button" onClick={updateRuCIDR} disabled={ruUpdating || tunnelState !== 'idle'}>
+                {ruUpdating ? 'Обновление...' : 'Обновить RU CIDR'}
+              </button>
             </div>
 
             <DnsServerControl value={dnsRaw} onChange={setDnsRaw} />

@@ -436,6 +436,12 @@ func (o *Orchestrator) IsRunning() bool {
 	return engine != nil && engine.IsRunning()
 }
 
+func (o *Orchestrator) sessionActive() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return !o.userStopped && o.sessionCtx != nil && o.sessionCtx.Err() == nil
+}
+
 func (o *Orchestrator) monitorNetwork(ctx context.Context, p ConnectParams) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()

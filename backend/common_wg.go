@@ -153,8 +153,9 @@ func mergeCIDRs(cidrs []string) []string {
 
 func loadGeoIPRuCIDRs() []string {
 	var bytes []byte
+	bytes, _ = os.ReadFile(filepath.Join(configDir(), "geoip-ru.txt"))
 	exe, err := os.Executable()
-	if err == nil {
+	if len(bytes) == 0 && err == nil {
 		txtPath := filepath.Join(filepath.Dir(exe), "geoip-ru.txt")
 		bytes, err = os.ReadFile(txtPath)
 	}

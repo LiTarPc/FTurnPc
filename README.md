@@ -74,7 +74,7 @@ FreeTurn relay mode определяется автоматически:
 - FreeTurn process направляется в `direct`
 - TURN IP получают отдельные `/32` маршруты через физический gateway
 - private networks идут напрямую
-- RU bypass — через встроенный `geoip-ru.srs` + домены `.ru`, `.su`, `.рф`
+- RU bypass — через `geoip-ru.srs` + домены `.ru`, `.su`, `.рф`. Исходные IPv4 CIDR находятся в `build/bin/geoip-ru.txt` ([IPdeny RU aggregated](https://www.ipdeny.com/ipblocks/data/aggregated/ru-aggregated.zone)); рядом сохраняется файл `Copyrights.txt` от IPdeny. Во вкладке «Обход» список можно обновить: приложение скачает и проверит CIDR, скомпилирует новый SRS через sing-box и сохранит оба файла в пользовательском каталоге. Обновление применяется при следующем подключении.
 - bypass приложений — через sing-box `process_path_regex -> direct`
 
 Bypass приложений хранится в:

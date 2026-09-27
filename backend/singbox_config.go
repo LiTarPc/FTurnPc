@@ -81,9 +81,9 @@ func findGeoIPRuSRS() string {
 	exe, _ := os.Executable()
 	exeDir := filepath.Dir(exe)
 	candidates := []string{
+		filepath.Join(configDir(), "geoip-ru.srs"),
 		filepath.Join(exeDir, "geoip-ru.srs"),
 		filepath.Join(exeDir, "assets", "freeturn", "geoip-ru.srs"),
-		filepath.Join(configDir(), "geoip-ru.srs"),
 	}
 	for _, p := range candidates {
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {

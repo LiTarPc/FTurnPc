@@ -93,6 +93,7 @@ Section
     SetOutPath $INSTDIR
     !insertmacro wails.files
     File "..\..\bin\geoip-ru.txt"
+    File "..\..\bin\Copyrights.txt"
 
     !ifdef SUPPORTS_AMD64
         File "/oname=freeturnclient.exe" "..\..\bin\client-windows-amd64.exe"
