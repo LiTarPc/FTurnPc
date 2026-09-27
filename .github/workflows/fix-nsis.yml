@@ -95,7 +95,13 @@ jobs:
 
       - name: Run backend tests
         shell: pwsh
-        run: go test ./backend
+        run: |
+          go test ./backend
+          if ($LASTEXITCODE -ne 0) { throw "backend tests failed" }
+          $env:SING_BOX_BIN = (Resolve-Path "sing-box-$env:SINGBOX_VERSION-windows-amd64/sing-box.exe").Path
+          $env:SING_BOX_EXPECTED_VERSION = $env:SINGBOX_VERSION
+          go test -tags=integration ./backend -run TestSingBoxSchema -count=1
+          if ($LASTEXITCODE -ne 0) { throw "sing-box schema tests failed" }
 
       - name: Build Wails NSIS installer
         shell: pwsh

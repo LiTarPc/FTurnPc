@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { IconSettings2, IconChevronDown, IconX, IconAlertTriangle, IconActivity, IconRefresh, IconDownload, IconFolderOpen } from '@tabler/icons-react';
 import { settingsStore } from '../lib/store';
+import { dnsServerError } from '../lib/dns';
+import DnsServerControl from '../components/DnsServerControl';
 import { tunnelStore } from '../lib/stores/tunnelStore';
 import type { AppSettings } from '../lib/types';
 import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckNAT, CheckCoreUpdate, UpdateCore, GetCoreVersion, SelectAndReplaceCore } from '../../wailsjs/go/backend/App';
@@ -12,6 +14,7 @@ interface Props {
 export default function Settings({ onClose }: Props) {
   const [settings, setSettings] = useState<AppSettings>(() => settingsStore.get());
   const [mtuRaw, setMtuRaw] = useState(String(settingsStore.get().mtu ?? 1300));
+  const [dnsRaw, setDnsRaw] = useState(settingsStore.get().dnsServer ?? '');
   const mtuValid = (() => { const n = Number(mtuRaw); return Number.isInteger(n) && n >= 576 && n <= 1500; })();
   const [tunnelState, setTunnelState] = useState(() => tunnelStore.get());
   useEffect(() => tunnelStore.subscribe(setTunnelState), []);
@@ -104,11 +107,11 @@ export default function Settings({ onClose }: Props) {
   };
 
   const handleClose = () => {
+    if (dnsServerError(dnsRaw)) return;
+    const dnsServer = dnsRaw.trim();
     const n = Number(mtuRaw);
     const mtu = mtuValid ? n : settings.mtu;
-    if (mtu !== settings.mtu) {
-      update('mtu', mtu);
-    }
+    settingsStore.save({ ...settings, dnsServer, mtu });
     onClose();
   };
 
@@ -230,6 +233,8 @@ export default function Settings({ onClose }: Props) {
             <span>Обход RU-ресурсов</span>
             <button className={`st-toggle st-toggle--${settings.bypassRu ? 'on' : 'off'}`} onClick={() => update('bypassRu', !settings.bypassRu)} />
           </div>
+
+          <DnsServerControl value={dnsRaw} onChange={setDnsRaw} />
 
           <div className="st-row">
             <span>Автопроверка обновлений ядра</span>

@@ -849,11 +849,13 @@ func assembleConfig(outbounds []interface{}, endpoints []interface{}, dnsRemote 
 		tunInbound["auto_redirect"] = true
 	}
 
+	remoteDNS, err := buildRemoteDNSServer(params.DNSServer, dnsRemote, proxyTag)
+	if err != nil {
+		return nil, err
+	}
 	dnsConfig := map[string]interface{}{
 		"servers": []interface{}{
-			map[string]interface{}{
-				"type": "udp", "tag": "dns-remote", "server": dnsRemote, "detour": proxyTag,
-			},
+			remoteDNS,
 			map[string]interface{}{"type": "local", "tag": "dns-local"},
 		},
 		"final":    "dns-remote",

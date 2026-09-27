@@ -244,6 +244,7 @@ export default function Connect() {
         workers,
         mtu,
         bypassRu,
+        dnsServer: settingsStore.get().dnsServer.trim(),
       });
       logStore.push('INFO', 'WailsConnect вернул OK (процесс запущен)');
     } catch (e: any) {
