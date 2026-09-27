@@ -114,6 +114,8 @@ SectionEnd
 Section "uninstall"
     !insertmacro wails.setShellContext
 
+    ExecWait '"$SYSDIR\schtasks.exe" /Delete /TN "FTurnPc-singbox-AutoStart" /F'
+
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 
     RMDir /r $INSTDIR

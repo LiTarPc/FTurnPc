@@ -1,6 +1,39 @@
 package backend
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+func TestReconnectDoesNotBlockUserStopWhileWaitingForNetwork(t *testing.T) {
+	o := NewOrchestrator(context.Background(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	finished := make(chan struct{})
+	go func() {
+		o.reconnect(ctx, ConnectParams{})
+		close(finished)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	lockAvailable := make(chan struct{})
+	go func() {
+		o.transitionMu.Lock()
+		o.transitionMu.Unlock()
+		close(lockAvailable)
+	}()
+	select {
+	case <-lockAvailable:
+	case <-time.After(time.Second):
+		t.Fatal("reconnect held transition lock while waiting; Disconnect would hang")
+	}
+	cancel()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("reconnect did not stop after session cancellation")
+	}
+}
 
 func TestClassifyLevel(t *testing.T) {
 	tests := []struct {

@@ -77,6 +77,7 @@ func (a *App) OnBeforeClose(ctx context.Context) bool {
 func (a *App) Connect(p ConnectParams) error { return a.orch.Start(p) }
 func (a *App) Disconnect()                   { a.orch.Stop() }
 func (a *App) IsRunning() bool               { return a.orch.IsRunning() }
+func (a *App) NetworkReady() bool            { return IsInternetAvailable() }
 func (a *App) CheckNAT() (*NATResult, error) { return CheckNATType() }
 
 func (a *App) CheckVPN() []string {

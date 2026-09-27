@@ -40,7 +40,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   power: 9,
   mtu: 1300,
   tray: true,
-  autoStart: true,
+  autoStart: false,
   autoConnect: false,
   hashes: ['', '', '', ''],
   useGlobalHashes: false,

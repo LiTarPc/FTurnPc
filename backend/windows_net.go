@@ -106,9 +106,24 @@ type defaultRouteSnapshot struct {
 // defaultRouteFast avoids spawning `route print` every monitor tick. The
 // selected row is the lowest-metric IPv4 default route from IP Helper API.
 func defaultRouteFast() defaultRouteSnapshot {
+	return selectDefaultRoute(getIPv4RouteRows(), interfaceOperational)
+}
+
+func interfaceOperational(index int) bool {
+	iface := xwindows.MibIfRow2{InterfaceIndex: uint32(index)}
+	if err := xwindows.GetIfEntry2Ex(xwindows.MibIfEntryNormal, &iface); err != nil {
+		return true // Keep the route if Windows cannot report link state.
+	}
+	return iface.OperStatus == xwindows.IfOperStatusUp
+}
+
+func selectDefaultRoute(rows []MIB_IPFORWARDROW, linkUp func(int) bool) defaultRouteSnapshot {
 	var best defaultRouteSnapshot
-	for _, row := range getIPv4RouteRows() {
+	for _, row := range rows {
 		if row.DwForwardDest != 0 || row.DwForwardMask != 0 || row.DwForwardIfIndex == 0 {
+			continue
+		}
+		if !linkUp(int(row.DwForwardIfIndex)) {
 			continue
 		}
 		if !best.valid || row.DwForwardMetric1 < best.metric {
@@ -171,9 +186,23 @@ func HasNetworkChanged() bool {
 		netMonInit = true
 		return false
 	}
-	changed := current.valid != lastRouteValid || current.gateway != lastGwIP || current.ifIndex != lastIfIndex
+	changed := networkChanged(defaultRouteSnapshot{gateway: lastGwIP, ifIndex: lastIfIndex, valid: lastRouteValid}, current)
 	lastGwIP = current.gateway
 	lastIfIndex = current.ifIndex
 	lastRouteValid = current.valid
 	return changed
+}
+
+func networkChanged(previous, current defaultRouteSnapshot) bool {
+	return previous.valid != current.valid || previous.gateway != current.gateway || previous.ifIndex != current.ifIndex
+}
+
+func resetNetworkMonitor() {
+	current := defaultRouteFast()
+	netMonMu.Lock()
+	lastGwIP = current.gateway
+	lastIfIndex = current.ifIndex
+	lastRouteValid = current.valid
+	netMonInit = true
+	netMonMu.Unlock()
 }

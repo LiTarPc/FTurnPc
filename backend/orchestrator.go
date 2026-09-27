@@ -340,6 +340,7 @@ func (o *Orchestrator) Start(p ConnectParams) error {
 		o.stopLogWriter()
 		return err
 	}
+	resetNetworkMonitor()
 	go o.monitorNetwork(ctx, p)
 	return nil
 }
@@ -470,11 +471,11 @@ func (o *Orchestrator) monitorNetwork(ctx context.Context, p ConnectParams) {
 
 func (o *Orchestrator) reconnect(ctx context.Context, p ConnectParams) bool {
 	o.transitionMu.Lock()
-	defer o.transitionMu.Unlock()
 
 	o.mu.Lock()
 	if o.userStopped || ctx.Err() != nil {
 		o.mu.Unlock()
+		o.transitionMu.Unlock()
 		return false
 	}
 	engine := o.engine
@@ -483,6 +484,7 @@ func (o *Orchestrator) reconnect(ctx context.Context, p ConnectParams) bool {
 	if engine != nil {
 		engine.Stop()
 	}
+	o.transitionMu.Unlock()
 
 	// Do not stop/recreate the log writer here. A reconnect is still the same
 	// user session, so all attempts and their errors must remain in one file.
@@ -496,22 +498,25 @@ func (o *Orchestrator) reconnect(ctx context.Context, p ConnectParams) bool {
 		case <-timer.C:
 		}
 
-		o.mu.Lock()
-		stopped := o.userStopped
-		o.mu.Unlock()
-		if stopped {
-			return false
-		}
 		if !IsInternetAvailable() {
 			continue
 		}
+		o.transitionMu.Lock()
+		o.mu.Lock()
+		stopped := o.userStopped || ctx.Err() != nil
+		o.mu.Unlock()
+		if stopped {
+			o.transitionMu.Unlock()
+			return false
+		}
 		attempt++
 		emitSessionLog(o.appCtx, "INFO", fmt.Sprintf("[Auto-Reconnect] Попытка #%d: восстановление туннеля...", attempt))
-		if err := o.startEngineOnly(ctx, p); err == nil {
+		err := o.startEngineOnly(ctx, p)
+		o.transitionMu.Unlock()
+		if err == nil {
 			emitSessionLog(o.appCtx, "INFO", fmt.Sprintf("[Auto-Reconnect] Связь успешно восстановлена на попытке #%d", attempt))
 			return true
-		} else {
-			emitSessionLog(o.appCtx, "WARN", fmt.Sprintf("[Auto-Reconnect] Попытка #%d не удалась: %v", attempt, err))
 		}
+		emitSessionLog(o.appCtx, "WARN", fmt.Sprintf("[Auto-Reconnect] Попытка #%d не удалась: %v", attempt, err))
 	}
 }

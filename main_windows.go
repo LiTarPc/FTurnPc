@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"log"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -24,6 +25,9 @@ var trayIcon []byte
 var geoIPRuSRS []byte
 
 func main() {
+	if err := backend.MigrateWindowsAutoStart(); err != nil {
+		log.Printf("[AutoStart] Не удалось перенести автозапуск в Планировщик заданий: %v", err)
+	}
 	app := backend.NewApp(trayIcon, geoIPRuSRS)
 
 	err := wails.Run(&options.App{

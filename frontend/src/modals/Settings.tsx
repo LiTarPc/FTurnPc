@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { IconSettings2, IconX, IconRefresh, IconDownload, IconFolderOpen } from '@tabler/icons-react';
 import { settingsStore } from '../lib/store';
 import { tunnelStore } from '../lib/stores/tunnelStore';
+import { toastStore } from '../lib/stores/toastStore';
 import type { AppSettings } from '../lib/types';
 import { SetTrayEnabled, SetAutoStart, GetAutoStart, CheckCoreUpdate, UpdateCore, GetCoreVersion, SelectAndReplaceCore } from '../../wailsjs/go/backend/App';
 
@@ -11,6 +12,7 @@ interface Props {
 
 export default function Settings({ onClose }: Props) {
   const [settings, setSettings] = useState<AppSettings>(() => settingsStore.get());
+  const [autoStartBusy, setAutoStartBusy] = useState(true);
   const [tunnelState, setTunnelState] = useState(() => tunnelStore.get());
   useEffect(() => tunnelStore.subscribe(setTunnelState), []);
   const locked = tunnelState === 'connected' || tunnelState === 'connecting';
@@ -27,7 +29,7 @@ export default function Settings({ onClose }: Props) {
   useEffect(() => {
     GetAutoStart().then((v: any) => {
       if (v !== settings.autoStart) update('autoStart', v);
-    });
+    }).catch((err: unknown) => console.error('GetAutoStart:', err)).finally(() => setAutoStartBusy(false));
     GetCoreVersion().then((v: any) => setCoreVer(v || 'Не установлен'));
 
     const w = window as any;
@@ -168,11 +170,18 @@ export default function Settings({ onClose }: Props) {
           </div>
 
           <div className="st-row">
-            <span>Запускать при старте</span>
-            <button className={`st-toggle st-toggle--${settings.autoStart ? 'on' : 'off'}`} onClick={() => {
+            <span>Запускать с Windows</span>
+            <button disabled={autoStartBusy} className={`st-toggle st-toggle--${settings.autoStart ? 'on' : 'off'}`} onClick={async () => {
               const next = !settings.autoStart;
-              update('autoStart', next);
-              SetAutoStart(next);
+              setAutoStartBusy(true);
+              try {
+                await SetAutoStart(next);
+                update('autoStart', next);
+              } catch (err) {
+                toastStore.show(`Ошибка автозапуска: ${String(err)}`, 5000);
+              } finally {
+                setAutoStartBusy(false);
+              }
             }} />
           </div>
 
