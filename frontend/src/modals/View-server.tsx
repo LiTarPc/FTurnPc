@@ -278,13 +278,13 @@ export function ViewServer({ server, onClose, onSave }: Props) {
                 <hr />
                 
                 <div className="form-group row">
-                  <label>VK Call (Links):</label>
+                  <label>Мессенджер (Links):</label>
                   <input 
                     type="text" 
                     className="input" 
                     value={links} 
                     onChange={e => setLinks(e.target.value)}
-                    placeholder="vk.ru/call..."
+                    placeholder="Ссылка звонка"
                   />
                 </div>
 

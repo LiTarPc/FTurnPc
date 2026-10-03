@@ -37,7 +37,7 @@ func (e *FreeturnEngine) parseLogs(r io.Reader) {
 		}
 
 		if strings.Contains(line, "all VK credentials failed") {
-			emitSessionLog(e.appCtx, "WARN", "[SB] Ошибка получения токена VK для потока. Ожидание автоматической повторной попытки...")
+			emitSessionLog(e.appCtx, "WARN", "[SB] Ошибка получения токена мессенджера для потока. Ожидание автоматической повторной попытки...")
 		}
 
 		lowerLine := strings.ToLower(line)

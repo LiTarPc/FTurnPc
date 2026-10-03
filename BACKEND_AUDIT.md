@@ -93,7 +93,7 @@ An explicit `mode` that conflicts with a known protocol is rejected.
 
 ### Core updater
 
-- Automatic core update only accepts release assets from `samosvalishe/free-turn-proxy`.
+- Automatic core update only accepts release assets from `LiTarPc/fturn-core`.
 - The release asset SHA-256 from GitHub release metadata is verified before installation.
 - Downloads and extracted executables have hard size limits.
 - ZIP extraction only accepts known FreeTurn client filenames; it never falls back to the first arbitrary executable in an archive.

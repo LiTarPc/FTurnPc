@@ -37,7 +37,7 @@ func TestValidateCoreDownloadURL(t *testing.T) {
 		"http://github.com/LiTarPc/fturn-core/releases/download/v4.1.2/client-linux-amd64",
 		"https://evil.example/LiTarPc/fturn-core/releases/download/v4.1.2/client-linux-amd64",
 		"https://github.com/other/repo/releases/download/v1/client-linux-amd64",
-		"https://github.com/samosvalishe/free-turn-proxy/releases/download/v4.0.1/client-linux-amd64",
+		"https://github.com/LiTarPc/other-core/releases/download/v4.0.1/client-linux-amd64",
 		"https://github.com/LiTarPc/fturn-core/archive/refs/heads/main.zip",
 	}
 	for _, raw := range bad {
