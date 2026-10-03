@@ -1,6 +1,39 @@
 package backend
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+func TestReconnectDoesNotBlockUserStopWhileWaitingForNetwork(t *testing.T) {
+	o := NewOrchestrator(context.Background(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	finished := make(chan struct{})
+	go func() {
+		o.reconnect(ctx, ConnectParams{})
+		close(finished)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	lockAvailable := make(chan struct{})
+	go func() {
+		o.transitionMu.Lock()
+		o.transitionMu.Unlock()
+		close(lockAvailable)
+	}()
+	select {
+	case <-lockAvailable:
+	case <-time.After(time.Second):
+		t.Fatal("reconnect held transition lock while waiting; Disconnect would hang")
+	}
+	cancel()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("reconnect did not stop after session cancellation")
+	}
+}
 
 func TestClassifyLevel(t *testing.T) {
 	tests := []struct {
@@ -59,4 +92,30 @@ func TestClassifyLevel(t *testing.T) {
 	}
 }
 
+func TestIsRoutineSingboxTCPClosure(t *testing.T) {
+	routine := []string{
+		"[SB] ERROR connection: connection download closed: raw-read tcp 10.0.0.2:1234->1.2.3.4:443: An existing connection was forcibly closed by the remote host.",
+		"[SB] ERROR connection: connection upload closed: write tcp4 172.19.0.1:1234->172.19.0.2:5678: wsasend: An established connection was aborted by the software in your host machine.",
+		"[SB] ERROR connection: connection download closed: read tcp: connection reset by peer",
+		"[SB] ERROR connection: connection upload closed: write tcp: broken pipe",
+	}
+	for _, msg := range routine {
+		if !isRoutineSingboxTCPClosure(msg) {
+			t.Errorf("routine close not recognized: %q", msg)
+		}
+	}
 
+	realFailures := []string{
+		"[SB] ERROR connection: open connection to 81.163.17.245:443 using outbound/direct[direct]: dial tcp 81.163.17.245:443: i/o timeout",
+		"[SB] ERROR endpoint/wireguard[proxy]: failed to send handshake initiation",
+		"[SB] ERROR tls: handshake failed: certificate verify failed",
+		"[SB] ERROR inbound/tun[tun-in]: configure tun interface: access is denied",
+		"[SB] FATAL start service: bind failed",
+		"connection download closed: connection reset by peer", // not tagged as sing-box
+	}
+	for _, msg := range realFailures {
+		if isRoutineSingboxTCPClosure(msg) {
+			t.Errorf("real failure incorrectly downgraded: %q", msg)
+		}
+	}
+}

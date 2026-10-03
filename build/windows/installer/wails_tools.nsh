@@ -5,16 +5,16 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "FTurnPc"
+    !define INFO_PROJECTNAME "FTurnPc-singbox"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "FTurnPc"
+    !define INFO_COMPANYNAME "FTurnPc-singbox"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "FTurnPc"
+    !define INFO_PRODUCTNAME "FTurnPc-singbox"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "1.5.3"
+    !define INFO_PRODUCTVERSION "2.0.0"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "© 2026 FTurnPc"

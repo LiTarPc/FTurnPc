@@ -52,10 +52,11 @@ func TestProfileDataOptionalFields(t *testing.T) {
 
 func TestConnectParamsJSON(t *testing.T) {
 	cp := ConnectParams{
-		Profile:  "my-profile",
-		Workers:  5,
-		MTU:      1280,
-		BypassRu: true,
+		Profile:   "my-profile",
+		Workers:   5,
+		MTU:       1280,
+		BypassRu:  true,
+		DNSServer: "https://dns.adguard-dns.com/dns-query",
 	}
 
 	data, err := json.Marshal(cp)
@@ -75,6 +76,9 @@ func TestConnectParamsJSON(t *testing.T) {
 	}
 	if got.BypassRu != cp.BypassRu {
 		t.Errorf("BypassRu = %v, want %v", got.BypassRu, cp.BypassRu)
+	}
+	if got.DNSServer != cp.DNSServer {
+		t.Errorf("DNSServer = %q, want %q", got.DNSServer, cp.DNSServer)
 	}
 }
 

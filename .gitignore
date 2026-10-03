@@ -1,6 +1,7 @@
 # Build output
 build/bin/*
 !build/bin/geoip-ru.txt
+!build/bin/Copyrights.txt
 
 # Node
 frontend/node_modules/
@@ -26,3 +27,6 @@ frontend/wailsjs/
 # Scratch files
 scratch/
 pwdtt-desktop
+
+# Local core configuration can contain secrets
+/client_config.json

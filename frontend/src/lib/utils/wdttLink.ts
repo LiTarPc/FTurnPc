@@ -9,6 +9,7 @@ export interface WdttLink {
   name: string;
   wg?: string;
   links?: string;
+  sb?: any;     // sing-box конфигурация (endpoints/outbounds или URI)
 }
 
 function decodeB64String(b64: string): string | null {

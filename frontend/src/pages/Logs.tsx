@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { IconSearch, IconTrashX, IconCopy } from '@tabler/icons-react';
 import { logStore, type LogEntry, type LogLevel } from '../lib/stores/logStore';
 
-type Filter = 'ALL' | 'INFO' | 'ERROR';
+type SourceFilter = 'ALL' | 'SB' | 'FT';
+type LevelFilter = 'ALL' | 'INFO' | 'ERROR';
 
 const LEVEL_COLOR: Record<LogLevel, string> = {
   INFO: 'var(--text)',
@@ -18,7 +19,8 @@ function cleanLogMessage(msg: string): string {
 }
 
 export default function Logs() {
-  const [filter, setFilter] = useState<Filter>('ALL');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('ALL');
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>('ALL');
   const [search, setSearch] = useState('');
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -38,7 +40,11 @@ export default function Logs() {
   }, []);
 
   const visible = entries.filter(e => {
-    if (filter !== 'ALL' && e.level !== filter) return false;
+    if (levelFilter !== 'ALL' && e.level !== levelFilter) return false;
+    
+    if (sourceFilter === 'SB' && !e.message.includes('[SB]')) return false;
+    if (sourceFilter === 'FT' && e.message.includes('[SB]')) return false;
+
     if (search && !e.message.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -248,17 +254,26 @@ export default function Logs() {
               </div>
             </div>
             <div className="logs-toolbar-right">
-              <div className="filter-group">
-                {(['ALL', 'INFO', 'ERROR'] as Filter[]).map(f => (
-                  <button key={f} className={`filter-btn${filter === f ? ' filter-btn--active' : ''}`} onClick={() => setFilter(f)}>{f}</button>
-                ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div className="filter-group">
+                  {(['ALL', 'SB', 'FT'] as SourceFilter[]).map(f => (
+                    <button key={f} className={`filter-btn${sourceFilter === f ? ' filter-btn--active' : ''}`} onClick={() => setSourceFilter(f)}>{f}</button>
+                  ))}
+                </div>
+                <div className="filter-group">
+                  {(['ALL', 'INFO', 'ERROR'] as LevelFilter[]).map(f => (
+                    <button key={f} className={`filter-btn${levelFilter === f ? ' filter-btn--active' : ''}`} onClick={() => setLevelFilter(f)}>{f}</button>
+                  ))}
+                </div>
               </div>
-              <button className="icon-btn" onClick={logStore.clear} title="Очистить" aria-label="Очистить логи">
-                <IconTrashX stroke={2} size={16} />
-              </button>
-              <button className="icon-btn" onClick={handleCopy} title="Копировать" aria-label="Копировать логи">
-                <IconCopy stroke={2} size={16} />
-              </button>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="icon-btn" onClick={logStore.clear} title="Очистить" aria-label="Очистить логи">
+                  <IconTrashX stroke={2} size={16} />
+                </button>
+                <button className="icon-btn" onClick={handleCopy} title="Копировать" aria-label="Копировать логи">
+                  <IconCopy stroke={2} size={16} />
+                </button>
+              </div>
             </div>
           </div>
 

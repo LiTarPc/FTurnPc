@@ -22,8 +22,11 @@ var appIcon []byte
 //go:embed assets/icons/tree-icon.png
 var trayIcon []byte
 
+//go:embed assets/freeturn/geoip-ru.srs
+var geoIPRuSRS []byte
+
 func main() {
-	app := backend.NewApp(trayIcon)
+	app := backend.NewApp(trayIcon, geoIPRuSRS)
 
 	err := wails.Run(&options.App{
 		Title:     "FTurnPc",

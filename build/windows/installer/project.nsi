@@ -93,21 +93,14 @@ Section
     SetOutPath $INSTDIR
     !insertmacro wails.files
     File "..\..\bin\geoip-ru.txt"
+    File "..\..\bin\Copyrights.txt"
 
     !ifdef SUPPORTS_AMD64
-        !if /FileExists "..\..\bin\client-windows-amd64.exe"
-            File "/oname=freeturnclient.exe" "..\..\bin\client-windows-amd64.exe"
-        !else
-            File "..\..\bin\freeturnclient.exe"
-        !endif
-        File "/oname=wintun.dll" "..\..\..\assets\wintun_amd64.dll"
+        File "/oname=freeturnclient.exe" "..\..\bin\client-windows-amd64.exe"
+        File "..\..\..\sing-box-1.14.0-windows-amd64\sing-box.exe"
     !else
-        !if /FileExists "..\..\bin\client-windows-386.exe"
-            File "/oname=freeturnclient.exe" "..\..\bin\client-windows-386.exe"
-        !else
-            File "..\..\bin\freeturnclient.exe"
-        !endif
-        File "/oname=wintun.dll" "..\..\..\assets\wintun_386.dll"
+        File "/oname=freeturnclient.exe" "..\..\bin\client-windows-386.exe"
+        # 386 версий sing-box у нас пока нет в папке, поэтому упакуем amd64, или ничего (оставим TODO)
     !endif
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -121,6 +114,8 @@ SectionEnd
 
 Section "uninstall"
     !insertmacro wails.setShellContext
+
+    ExecWait '"$SYSDIR\schtasks.exe" /Delete /TN "FTurnPc-singbox-AutoStart" /F'
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 

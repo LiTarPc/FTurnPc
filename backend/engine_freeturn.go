@@ -3,16 +3,25 @@ package backend
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
-	"strings"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// FreeturnEngine управляет дочерним процессом freeturnclient и его жизненным циклом.
+const freeTurnStopTimeout = 4 * time.Second
+
+type managedTurnRoute struct {
+	gateway string
+	ifIndex int
+}
+
+// FreeturnEngine manages freeturnclient and the dependent sing-box TUN process.
 type FreeturnEngine struct {
 	appCtx context.Context
 	cmd    *exec.Cmd
@@ -20,70 +29,235 @@ type FreeturnEngine struct {
 	mu     sync.Mutex
 	wg     sync.WaitGroup
 
-	onTray            func(connected bool, rx, tx int64, workers int32)
-	onUnexpectedExit  func(err error)
-	userStopped       bool
-	muIPs             sync.Mutex
-	turnIPs           map[string]bool
-	wgApplied         bool
+	onTray           func(connected bool, rx, tx int64, workers int32)
+	onUnexpectedExit func(err error)
+	userStopped      bool
+	sessionClosing   bool
+	failureErr       error
+
+	sbTun              *SingboxTun
+	sbCfgPath          string
+	tunName            string
+	sbApplied          bool
+	sbStarting         bool
+	ftReady            bool
+	routePendingWarned bool
+
 	configuredStreams int
 	muStreams         sync.Mutex
 	activeStreams     map[string]bool
 	statsStop         chan struct{}
 	exitChan          chan struct{}
+
+	turnRoutesMu      sync.Mutex
+	turnRoutes        map[string]struct{}
+	managedTurnRoutes map[string]managedTurnRoute
+	turnRouteFailures map[string]time.Time
+	protectedPeerIP   string
 }
 
 func NewFreeturnEngine(ctx context.Context, onTray func(bool, int64, int64, int32), onUnexpectedExit func(err error)) *FreeturnEngine {
-	return &FreeturnEngine{
+	e := &FreeturnEngine{
 		appCtx:           ctx,
 		onTray:           onTray,
 		onUnexpectedExit: onUnexpectedExit,
-		turnIPs:          make(map[string]bool),
 	}
+	e.sbTun = &SingboxTun{
+		appCtx: ctx,
+		onUnexpectedExit: func(err error) {
+			e.fail(fmt.Errorf("sing-box неожиданно завершился: %w", err))
+		},
+	}
+	return e
 }
 
 func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
 	if e.cmd != nil {
 		return fmt.Errorf("already running")
 	}
 
-	e.muIPs.Lock()
-	e.turnIPs = make(map[string]bool)
-	e.wgApplied = false
-	e.muIPs.Unlock()
-
+	e.userStopped = false
+	e.sessionClosing = false
+	e.failureErr = nil
+	e.sbApplied = false
+	e.sbStarting = false
+	e.ftReady = false
+	e.routePendingWarned = false
+	e.statsStop = nil
+	e.tunName = newSessionTunName()
+	e.sbTun.tunName = e.tunName
+	p.tunName = e.tunName
 	e.muStreams.Lock()
 	e.activeStreams = make(map[string]bool)
 	e.muStreams.Unlock()
-	e.statsStop = nil
+	e.turnRoutesMu.Lock()
+	e.turnRoutes = make(map[string]struct{})
+	e.managedTurnRoutes = make(map[string]managedTurnRoute)
+	e.turnRouteFailures = make(map[string]time.Time)
+	e.protectedPeerIP = ""
+	e.turnRoutesMu.Unlock()
 
-	peerIP := prof.PeerAddr
-	if host, _, err := net.SplitHostPort(prof.PeerAddr); err == nil {
-		peerIP = host
+	mode, err := ResolveFreeTurnMode(prof)
+	if err != nil {
+		return fmt.Errorf("FreeTurn mode: %w", err)
 	}
-	peerIP = strings.TrimSpace(peerIP)
-	if peerIP == "localhost" {
-		peerIP = "127.0.0.1"
+	transport := prof.Transport
+	if transport == "" {
+		transport = "tcp"
 	}
-	if peerIP != "" {
-		if ip := net.ParseIP(peerIP); ip != nil {
-			e.muIPs.Lock()
-			e.turnIPs[peerIP] = true
-			e.muIPs.Unlock()
+	emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[FT] relay mode=%s, TURN transport=%s, local=%s:9000", mode, transport, freeTurnHost))
+
+	// Generate and validate sing-box before spending time establishing FreeTurn.
+	cfgBytes, err := BuildSingboxConfig(prof, p)
+	if err != nil {
+		return fmt.Errorf("ошибка генерации sing-box конфига: %w", err)
+	}
+	// The real proxy hop is always localhost:9000. Keep that hop completely
+	// outside the TUN route and explicitly bind its dialer to loopback so
+	// route.auto_detect_interface cannot force the socket onto the physical NIC.
+	cfgBytes, err = HardenSingboxLoopbackConfig(cfgBytes)
+	if err != nil {
+		return fmt.Errorf("ошибка настройки loopback bypass sing-box: %w", err)
+	}
+	emitSessionLog(e.appCtx, "INFO", "[SB] loopback bypass: exclude 127.0.0.0/8, bind proxy hop to 127.0.0.1")
+
+	bypassApps := loadBypassApps()
+	if len(bypassApps) > 0 {
+		cfgBytes, err = ApplyProcessBypassApps(cfgBytes, bypassApps)
+		if err != nil {
+			return fmt.Errorf("ошибка настройки application bypass sing-box: %w", err)
 		}
+		emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[SB] application bypass: %d process(es) -> direct", len(bypassApps)))
 	}
+
+	cfgPath, err := writeSingboxSessionConfig(cfgBytes)
+	if err != nil {
+		return err
+	}
+	e.sbCfgPath = cfgPath
+	cleanupConfigOnError := true
+	defer func() {
+		if cleanupConfigOnError {
+			e.cleanupSingboxConfigLocked()
+		}
+	}()
+
+	sbPath := getSingboxPath()
+	if sbPath == "" {
+		return fmt.Errorf("ядро sing-box не найдено")
+	}
+	if err := validateSingboxVersion(sbPath); err != nil {
+		return fmt.Errorf("sing-box version: %w", err)
+	}
+	if err := singboxCheck(sbPath, e.sbCfgPath); err != nil {
+		return fmt.Errorf("невалидный sing-box конфиг: %w", err)
+	}
+	emitSessionLog(e.appCtx, "INFO", "[SB] sing-box check OK; ожидаем готовность FreeTurn")
 
 	exePath := getFreeturnPath()
-	if _, err := os.Stat(exePath); os.IsNotExist(err) {
-		return fmt.Errorf("freeturnclient не найден по пути: %s", exePath)
+	if st, err := os.Stat(exePath); err != nil || st.IsDir() {
+		if err == nil {
+			err = fmt.Errorf("path is a directory")
+		}
+		return fmt.Errorf("freeturnclient недоступен по пути %s: %w", exePath, err)
 	}
 
+	args := buildFreeTurnArgs(p, prof, mode)
+	cleanupRoutesOnError := true
+	defer func() {
+		if cleanupRoutesOnError {
+			e.cleanupTrackedTurnRoutes()
+		}
+	}()
+	if uiManagesTurnRoutes() {
+		if err := e.protectFreeTurnPeer(prof.PeerAddr); err != nil {
+			return fmt.Errorf("маршрут к FreeTurn peer: %w", err)
+		}
+	}
+	ctx := e.appCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	procCtx, cancel := context.WithCancel(ctx)
+	e.cancel = cancel
+	e.exitChan = make(chan struct{})
+	cmd := exec.CommandContext(procCtx, exePath, args...)
+	prepareProcessGroup(cmd)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		e.cancel = nil
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		cancel()
+		e.cancel = nil
+		return fmt.Errorf("stderr pipe: %w", err)
+	}
+
+	emitSessionLog(e.appCtx, "DEBUG", fmt.Sprintf("Launching freeturn: %s %v", exePath, redactFreeTurnArgs(args)))
+	if err := cmd.Start(); err != nil {
+		cancel()
+		e.cancel = nil
+		return fmt.Errorf("failed to start freeturn: %w", err)
+	}
+	attachToJob(cmd)
+	e.cmd = cmd
+	cleanupConfigOnError = false
+	cleanupRoutesOnError = false
+
+	runtime.EventsEmit(e.appCtx, "state_changed", "connecting", "")
+	if e.onTray != nil {
+		e.onTray(false, 0, 0, 0)
+	}
+
+	e.wg.Add(2)
+	go e.parseLogs(stdout)
+	go e.parseLogs(stderr)
+	go e.waitFreeTurn(cmd, e.exitChan)
+	return nil
+}
+
+// protectFreeTurnPeer keeps the remote transport socket on the physical link
+// before FreeTurn starts, including when another VPN owns a host route.
+func (e *FreeturnEngine) protectFreeTurnPeer(peerAddr string) error {
+	host, _, err := net.SplitHostPort(peerAddr)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || ip.To4() == nil {
+		emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] peer %q не является IPv4 адресом; маршрут через физический интерфейс для него не закреплён", host))
+		return nil
+	}
+	route, err := addManagedTurnRoute(ip.String())
+	if route != nil {
+		e.managedTurnRoutes[ip.String()] = *route
+	}
+	if err != nil {
+		return err
+	}
+	e.protectedPeerIP = ip.String()
+	if route != nil {
+		emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("[FT] peer %s/32 через %s (interface %d)", ip, route.gateway, route.ifIndex))
+	}
+	return nil
+}
+
+func buildFreeTurnArgs(p ConnectParams, prof *ProfileData, mode string) []string {
 	args := []string{
-		"-listen", "127.0.0.1:9000",
+		"-listen", freeTurnHost + ":9000",
 		"-peer", prof.PeerAddr,
+		"-mode", mode,
+	}
+	if !uiManagesTurnRoutes() {
+		// On non-Windows FreeTurn owns dynamic TURN routes. On Windows the UI
+		// selects a physical adapter and owns exact host routes instead.
+		args = append(args, "-routes")
 	}
 	if prof.Links != "" {
 		args = append(args, "-links", prof.Links)
@@ -91,13 +265,11 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 
 	workers := p.Workers
 	if workers <= 0 {
-		if prof.Power > 0 {
-			workers = prof.Power
-		} else {
-			workers = 10
-		}
+		workers = prof.Power
 	}
-	e.configuredStreams = workers
+	if workers < 10 {
+		workers = 10
+	}
 	args = append(args, "-n", fmt.Sprintf("%d", workers))
 
 	transport := prof.Transport
@@ -111,16 +283,6 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 		streams = 5
 	}
 	args = append(args, "-streams-per-cred", fmt.Sprintf("%d", streams))
-
-	coreVer := GetCoreVersion()
-	isLegacy := strings.HasPrefix(coreVer, "v1.") || strings.HasPrefix(coreVer, "v2.") || strings.HasPrefix(coreVer, "Бинарный")
-	if !strings.HasPrefix(coreVer, "v") && (strings.HasPrefix(coreVer, "1.") || strings.HasPrefix(coreVer, "2.")) {
-		isLegacy = true
-	}
-	if isLegacy {
-		args = append(args, "-mode", "udp")
-	}
-
 	if prof.Obf != "" {
 		args = append(args, "-obf-profile", prof.Obf)
 	}
@@ -130,114 +292,254 @@ func (e *FreeturnEngine) Start(p ConnectParams, prof *ProfileData) error {
 	if prof.Cid != "" {
 		args = append(args, "-client-id", prof.Cid)
 	}
-	args = append(args, "-debug")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	e.cancel = cancel
-	e.exitChan = make(chan struct{})
-	e.cmd = exec.CommandContext(ctx, exePath, args...)
-
-	// Скрытие окна консоли на Windows
-	hideWindow(e.cmd)
-
-	stdout, err := e.cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return fmt.Errorf("stdout pipe: %v", err)
+	// UDP DTLS readiness and early TURN candidate discovery are logged at
+	// debug level by FreeTurn. Windows also needs candidate IPs in TCP mode
+	// before sing-box installs its TUN routes.
+	if mode == freeTurnModeUDP || uiManagesTurnRoutes() {
+		args = append(args, "-debug")
 	}
-	stderr, err := e.cmd.StderrPipe()
-	if err != nil {
-		cancel()
-		return fmt.Errorf("stderr pipe: %v", err)
-	}
+	return args
+}
 
-	safeArgs := make([]string, len(args))
-	copy(safeArgs, args)
-	for i, arg := range safeArgs {
-		if arg == "-obf-key" || arg == "-client-id" || arg == "-links" {
-			if i+1 < len(safeArgs) {
-				safeArgs[i+1] = "***"
+func redactFreeTurnArgs(args []string) []string {
+	redacted := append([]string(nil), args...)
+	for i, arg := range redacted {
+		switch arg {
+		case "-obf-key", "-client-id", "-links":
+			if i+1 < len(redacted) {
+				redacted[i+1] = "***"
 			}
 		}
 	}
-	runtime.EventsEmit(e.appCtx, "log", "DEBUG", fmt.Sprintf("Launching freeturn: %s %v", exePath, safeArgs))
+	return redacted
+}
 
-	if err := e.cmd.Start(); err != nil {
-		cancel()
-		e.cmd = nil
-		return fmt.Errorf("failed to start freeturn: %v", err)
+func writeSingboxSessionConfig(data []byte) (string, error) {
+	dir := singboxDir()
+	f, err := os.CreateTemp(dir, "config-*.json")
+	if err != nil {
+		return "", fmt.Errorf("не удалось создать временный sing-box config: %w", err)
 	}
+	path := f.Name()
+	ok := false
+	defer func() {
+		_ = f.Close()
+		if !ok {
+			_ = os.Remove(path)
+		}
+	}()
+	if err := f.Chmod(0o600); err != nil {
+		return "", fmt.Errorf("chmod sing-box config: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		return "", fmt.Errorf("write sing-box config: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		return "", fmt.Errorf("sync sing-box config: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("close sing-box config: %w", err)
+	}
+	ok = true
+	log.Printf("[SB] Временный конфиг создан: %s", path)
+	return path, nil
+}
 
-	runtime.EventsEmit(e.appCtx, "state_changed", "connecting", "")
+func (e *FreeturnEngine) waitFreeTurn(cmd *exec.Cmd, exitChan chan struct{}) {
+	defer close(exitChan)
+	err := cmd.Wait()
+
+	e.mu.Lock()
+	if e.cmd != cmd {
+		e.mu.Unlock()
+		return
+	}
+	e.sessionClosing = true
+	stopped := e.userStopped
+	failureErr := e.failureErr
+	e.stopStatsLoopLocked()
+	e.mu.Unlock()
+
+	// Prevent a parser goroutine from starting TUN while transport is already dead.
+	e.sbTun.Stop()
+	e.wg.Wait()
+
+	// On Windows remove only routes this UI created. Elsewhere FreeTurn removes
+	// its own -routes entries on a clean shutdown; the fallback handles crashes.
+	e.cleanupTrackedTurnRoutes()
+
+	emitSessionLog(e.appCtx, "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
+	if stopped {
+		runtime.EventsEmit(e.appCtx, "state_changed", "disconnected", "")
+	} else {
+		runtime.EventsEmit(e.appCtx, "state_changed", "connecting", "")
+	}
 	if e.onTray != nil {
 		e.onTray(false, 0, 0, 0)
 	}
 
-	e.wg.Add(2)
-	go e.parseLogs(stdout, prof.WGConfig, p.BypassRu, p.MTU)
-	go e.parseLogs(stderr, prof.WGConfig, p.BypassRu, p.MTU)
+	e.mu.Lock()
+	e.cmd = nil
+	e.cancel = nil
+	e.sbApplied = false
+	e.sbStarting = false
+	e.cleanupSingboxConfigLocked()
+	e.mu.Unlock()
 
-	go func() {
-		defer close(e.exitChan)
-		err := e.cmd.Wait()
-		e.mu.Lock()
-		stopped := e.userStopped
-		e.stopStatsLoopLocked()
-		e.mu.Unlock()
-		e.wg.Wait()
-		teardownWG()
-
-		runtime.EventsEmit(e.appCtx, "log", "INFO", fmt.Sprintf("Сессия FreeTurn завершена (err: %v)", err))
-		if stopped {
-			runtime.EventsEmit(e.appCtx, "state_changed", "disconnected", "")
-			if e.onTray != nil {
-				e.onTray(false, 0, 0, 0)
-			}
+	if !stopped && e.onUnexpectedExit != nil {
+		if failureErr != nil {
+			e.onUnexpectedExit(failureErr)
 		} else {
-			runtime.EventsEmit(e.appCtx, "state_changed", "connecting", "")
-			if e.onTray != nil {
-				e.onTray(false, 0, 0, 0)
-			}
-		}
-
-		e.mu.Lock()
-		e.cmd = nil
-		e.cancel = nil
-		e.mu.Unlock()
-
-		if !stopped && e.onUnexpectedExit != nil {
 			e.onUnexpectedExit(err)
 		}
-	}()
-
-	return nil
+	}
 }
 
-func (e *FreeturnEngine) Stop() {
+// fail makes a sing-box startup/runtime failure tear down the FreeTurn transport.
+// This prevents the orchestrator from considering a transport-only session healthy.
+func (e *FreeturnEngine) fail(err error) {
 	e.mu.Lock()
-	e.userStopped = true
+	if e.userStopped || e.sessionClosing {
+		e.mu.Unlock()
+		return
+	}
+	if e.failureErr == nil {
+		e.failureErr = err
+	}
+	e.sessionClosing = true
 	cancel := e.cancel
 	cmd := e.cmd
-	exitChan := e.exitChan
 	e.mu.Unlock()
 
-	e.mu.Lock()
-	e.stopStatsLoopLocked()
-	e.mu.Unlock()
-
+	// This is a failure path, so tear down immediately. waitFreeTurn performs the
+	// host-route fallback cleanup after the process and log readers are gone.
 	if cancel != nil {
 		cancel()
 	}
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
-	if exitChan != nil {
-		<-exitChan
+}
+
+func (e *FreeturnEngine) Stop() {
+	e.mu.Lock()
+	e.userStopped = true
+	e.sessionClosing = true
+	cancel := e.cancel
+	cmd := e.cmd
+	exitChan := e.exitChan
+	e.mu.Unlock()
+
+	e.sbTun.Stop()
+	e.mu.Lock()
+	e.stopStatsLoopLocked()
+	e.mu.Unlock()
+
+	if cmd != nil {
+		e.stopFreeTurnProcess(cmd, cancel, exitChan)
+	} else if cancel != nil {
+		cancel()
+	}
+
+	if exitChan == nil {
+		e.cleanupTrackedTurnRoutes()
+		e.mu.Lock()
+		e.cleanupSingboxConfigLocked()
+		e.mu.Unlock()
+	}
+}
+
+func (e *FreeturnEngine) stopFreeTurnProcess(cmd *exec.Cmd, cancel context.CancelFunc, done <-chan struct{}) {
+	if cmd == nil {
+		if cancel != nil {
+			cancel()
+		}
+		return
+	}
+
+	emitSessionLog(e.appCtx, "INFO", "[FT] Остановка FreeTurn с очисткой TURN routes...")
+	if err := signalStop(cmd); err != nil {
+		emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] graceful stop недоступен: %v; завершаем процесс", err))
+		if cancel != nil {
+			cancel()
+		}
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	} else if done != nil {
+		timer := time.NewTimer(freeTurnStopTimeout)
+		select {
+		case <-done:
+			timer.Stop()
+			return
+		case <-timer.C:
+			emitSessionLog(e.appCtx, "WARN", "[FT] graceful stop timeout; принудительное завершение")
+			if cancel != nil {
+				cancel()
+			}
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+		}
+	} else {
+		// A started engine normally always has an exit channel. Keep the fallback
+		// bounded if state is partially initialized.
+		if cancel != nil {
+			cancel()
+		}
+	}
+
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			emitSessionLog(e.appCtx, "WARN", "[FT] процесс не подтвердил завершение после Kill")
+		}
+	}
+}
+
+func (e *FreeturnEngine) cleanupTrackedTurnRoutes() {
+	if uiManagesTurnRoutes() {
+		e.turnRoutesMu.Lock()
+		routes := e.managedTurnRoutes
+		e.managedTurnRoutes = make(map[string]managedTurnRoute)
+		e.turnRoutes = make(map[string]struct{})
+		e.turnRouteFailures = make(map[string]time.Time)
+		e.protectedPeerIP = ""
+		e.turnRoutesMu.Unlock()
+		for ip, route := range routes {
+			if err := deleteManagedTurnRoute(ip, route); err != nil {
+				emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] failed to cleanup TURN route %s/32: %v", ip, err))
+			}
+		}
+		return
+	}
+	e.turnRoutesMu.Lock()
+	ips := make([]string, 0, len(e.turnRoutes))
+	for ip := range e.turnRoutes {
+		ips = append(ips, ip)
+	}
+	e.turnRoutes = make(map[string]struct{})
+	e.turnRoutesMu.Unlock()
+
+	for _, ip := range ips {
+		if err := cleanupTurnHostRoute(ip); err != nil {
+			emitSessionLog(e.appCtx, "WARN", fmt.Sprintf("[FT] failed to cleanup TURN route %s/32: %v", ip, err))
+		}
 	}
 }
 
 func (e *FreeturnEngine) IsRunning() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.cmd != nil
+	return e.cmd != nil && !e.sessionClosing
+}
+
+func (e *FreeturnEngine) cleanupSingboxConfigLocked() {
+	if e.sbCfgPath == "" {
+		return
+	}
+	path := filepath.Clean(e.sbCfgPath)
+	_ = os.Remove(path)
+	e.sbCfgPath = ""
 }

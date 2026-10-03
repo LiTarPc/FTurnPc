@@ -14,7 +14,7 @@ import { logStore } from '../lib/stores/logStore';
 import { wdttLinkStore } from '../lib/utils/wdttLink';
 import { SaveProfile } from '../../wailsjs/go/backend/App';
 import type { Server, TunnelState } from '../lib/types';
-import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles, DeleteProfile } from '../../wailsjs/go/backend/App';
+import { Connect as WailsConnect, Disconnect as WailsDisconnect, ListProfiles, DeleteProfile, NetworkReady } from '../../wailsjs/go/backend/App';
 import { ServerIcon, SERVER_ICONS } from '../components/ServerIcon';
 import { formatBytes, formatSpeed, pingColor } from '../lib/utils/format';
 
@@ -25,6 +25,10 @@ const TUNNEL_LABEL: Record<TunnelState, string> = {
   disconnecting: 'Отключение...',
 };
 
+// Routing to Logs remounts this page. Startup auto-connect must run at most
+// once per app process, including after a manual disconnect.
+let startupAutoConnectAttempted = false;
+
 export default function Connect() {
   const [servers, setServers] = useState<Server[]>(() => serverStore.getAll());
   const [selected, setSelected] = useState<Server | null>(() => {
@@ -34,6 +38,7 @@ export default function Connect() {
     return all.find(s => s.id === lastId) ?? all[0];
   });
   const [listOpen, setListOpen] = useState(false);
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
 
   const [stats, setStats] = useState<{ rx: number; tx: number; downSpeed: number; upSpeed: number } | null>(null);
   const prevStatsRef = useRef<{ rx: number; tx: number; time: number; downSpeed: number; upSpeed: number } | null>(null);
@@ -69,12 +74,17 @@ export default function Connect() {
       }
     };
 
-    EventsOn('stats', handleStats);
+    const unsubscribe = EventsOn('stats', handleStats);
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
     ListProfiles().then((profiles: any) => {
-      if (!profiles) return;
+      if (!profiles) {
+        setSelected(null);
+        setProfilesLoaded(true);
+        return;
+      }
       const existing = serverStore.getAll();
       let changed = false;
       
@@ -148,7 +158,10 @@ export default function Connect() {
       } else {
         setSelected(null);
       }
-    }).catch(console.error);
+      setProfilesLoaded(true);
+    }).catch((err: unknown) => {
+      logStore.push('ERROR', `Не удалось загрузить профили: ${String(err)}`);
+    });
   }, []);
 
   const [tunnelState, setTunnelState] = useState<TunnelState>(() => tunnelStore.get());
@@ -168,16 +181,42 @@ export default function Connect() {
   tunnelStateRef.current = tunnelState;
 
   useEffect(() => {
+    if (!profilesLoaded) return;
     serverStore.setLastSelectedId(selected?.id ?? null);
-  }, [selected?.id]);
+  }, [selected?.id, profilesLoaded]);
 
   useEffect(() => {
+    if (!profilesLoaded || startupAutoConnectAttempted) return;
     const s = settingsStore.get();
-    if (!s.autoConnect) return;
-    if (tunnelStateRef.current !== 'idle') return;
-    if (!selectedRef.current) return;
-    doConnect();
-  }, []);
+    if (!s.autoConnect || !selectedRef.current) return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const connectWhenOnline = async () => {
+      if (cancelled || startupAutoConnectAttempted) return;
+      if (tunnelStateRef.current !== 'idle') {
+        startupAutoConnectAttempted = true;
+        return;
+      }
+      let ready = false;
+      try {
+        ready = await NetworkReady();
+      } catch (err) {
+        logStore.push('WARN', `Проверка сети перед автоподключением: ${String(err)}`);
+      }
+      if (cancelled || startupAutoConnectAttempted) return;
+      if (!ready) {
+        retryTimer = setTimeout(() => void connectWhenOnline(), 3000);
+        return;
+      }
+      startupAutoConnectAttempted = true;
+      void doConnect();
+    };
+    void connectWhenOnline();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [profilesLoaded, selected?.id]);
 
   const [addServerOpen, setAddServerOpen] = useState(false);
   const [viewServer, setViewServer] = useState<Server | null>(null);
@@ -235,7 +274,7 @@ export default function Connect() {
     logStore.clear();
     logStore.push('INFO', `Подключение к профилю: ${cur.name}`);
     try {
-      const workers = cur.power || 10;
+      const workers = Math.max(10, cur.power || 10);
       const bypassRu = settingsStore.get().bypassRu;
       const mtu = Number(settingsStore.get().mtu) || 1300;
       await WailsConnect({
@@ -243,6 +282,7 @@ export default function Connect() {
         workers,
         mtu,
         bypassRu,
+        dnsServer: settingsStore.get().dnsServer.trim(),
       });
       logStore.push('INFO', 'WailsConnect вернул OK (процесс запущен)');
     } catch (e: any) {
@@ -257,6 +297,7 @@ export default function Connect() {
 
   const handleTunnel = async () => {
     if (!selectedRef.current) return;
+    startupAutoConnectAttempted = true;
     if (tunnelState === 'idle') {
       if (Date.now() < reconnectAt) {
         const secs = Math.ceil((reconnectAt - Date.now()) / 1000);

@@ -12,7 +12,7 @@ interface Props {
 
 export function ViewServer({ server, onClose, onSave }: Props) {
   const [links, setLinks] = useState(server.links || '');
-  const [power, setPower] = useState(String(server.power || 10));
+  const [power, setPower] = useState(String(Math.max(10, server.power || 10)));
   const [streams, setStreams] = useState(String(server.streamsPerCred || 5));
   
   const [peer, setPeer] = useState(server.peer || '');
@@ -22,6 +22,11 @@ export function ViewServer({ server, onClose, onSave }: Props) {
   const [obfKey, setObfKey] = useState(server.key || '');
   const [cid, setCid] = useState(server.cid || '');
   const [wg, setWg] = useState(server.wg || '');
+  const [sb, setSb] = useState(() => {
+    if (!server.sb) return '';
+    if (typeof server.sb === 'string') return server.sb;
+    return JSON.stringify(server.sb, null, 2);
+  });
 
   const [devMode, setDevMode] = useState(false);
 
@@ -33,7 +38,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
       const full: Server = { ...server, ...data };
       setProfile(full);
       setLinks(data.links || server.links || '');
-      setPower(String(data.power || server.power || 10));
+      setPower(String(Math.max(10, data.power || server.power || 10)));
       setStreams(String(data.streamsPerCred || server.streamsPerCred || 5));
       setPeer(data.peer || server.peer || '');
       setProvider(data.provider || server.provider || '');
@@ -42,6 +47,9 @@ export function ViewServer({ server, onClose, onSave }: Props) {
       setObfKey(data.key || server.key || '');
       setCid(data.cid || server.cid || '');
       setWg(data.wg || server.wg || '');
+      
+      const sbData = data.sb || server.sb;
+      setSb(sbData ? (typeof sbData === 'string' ? sbData : JSON.stringify(sbData, null, 2)) : '');
     }).catch(console.error);
   }, [server.name]);
 
@@ -49,10 +57,20 @@ export function ViewServer({ server, onClose, onSave }: Props) {
     try {
       let pNum = parseInt(power, 10);
       if (isNaN(pNum)) pNum = 10;
+      pNum = Math.max(10, pNum);
       if (!devMode && pNum > 20) pNum = 20;
 
       const sNum = parseInt(streams, 10);
       
+      let parsedSb: any = undefined;
+      if (sb.trim()) {
+        try {
+          parsedSb = JSON.parse(sb.trim());
+        } catch {
+          parsedSb = sb.trim(); // fallback to string (URI)
+        }
+      }
+
       const next: Server = {
         ...profile,
         links: links.trim(),
@@ -65,6 +83,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
         key: obfKey.trim(),
         cid: cid.trim(),
         wg: wg.trim(),
+        sb: parsedSb,
       };
 
       await SaveProfile(next.name, next as any);
@@ -223,9 +242,9 @@ export function ViewServer({ server, onClose, onSave }: Props) {
                 onChange={e => {
                   let val = Number(e.target.value);
                   if (!devMode && val > 20) val = 20;
-                  setPower(String(val));
+                  setPower(String(Math.max(10, val)));
                 }}
-                min="1"
+                min="10"
                 max={devMode ? "100" : "20"}
               />
             </div>
@@ -307,6 +326,16 @@ export function ViewServer({ server, onClose, onSave }: Props) {
                     className="input" 
                     value={wg} 
                     onChange={e => setWg(e.target.value)}
+                    style={{height: 120, width: '100%', fontFamily: 'monospace', resize: 'none', whiteSpace: 'pre', fontSize: '11px'}} 
+                  />
+                </div>
+
+                <div className="form-group" style={{flexDirection: 'column', alignItems: 'flex-start', marginTop: '1rem'}}>
+                  <label style={{marginBottom: '0.5rem'}}>SB Config / URI:</label>
+                  <textarea 
+                    className="input" 
+                    value={sb} 
+                    onChange={e => setSb(e.target.value)}
                     style={{height: 120, width: '100%', fontFamily: 'monospace', resize: 'none', whiteSpace: 'pre', fontSize: '11px'}} 
                   />
                 </div>

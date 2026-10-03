@@ -5,47 +5,13 @@ package backend
 import (
 	"fmt"
 	"net"
-	"os/exec"
-	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
+
+	xwindows "golang.org/x/sys/windows"
 )
 
-// MIB_IFROW содержит низкоуровневые метрики сетевого интерфейса Windows.
-type MIB_IFROW struct {
-	wszName           [256]uint16
-	dwIndex           uint32
-	dwType            uint32
-	dwMtu             uint32
-	dwSpeed           uint32
-	dwPhysAddrLen     uint32
-	bPhysAddr         [8]byte
-	dwAdminStatus     uint32
-	dwOperStatus      uint32
-	dwLastChange      uint32
-	dwInOctets        uint32
-	dwInUcastPkts     uint32
-	dwInNUcastPkts    uint32
-	dwInDiscards      uint32
-	dwInErrors        uint32
-	dwInUnknownProtos uint32
-	dwOutOctets       uint32
-	dwOutUcastPkts    uint32
-	dwOutNUcastPkts   uint32
-	dwOutDiscards     uint32
-	dwOutErrors       uint32
-	dwOutQLen         uint32
-	dwDescrLen        uint32
-	bDescr            [256]byte
-}
-
-var (
-	iphlpapi              = syscall.NewLazyDLL("iphlpapi.dll")
-	procGetIfEntry        = iphlpapi.NewProc("GetIfEntry")
-	procGetIpForwardTable = iphlpapi.NewProc("GetIpForwardTable")
-)
-
-// MIB_IPFORWARDROW описывает одну запись маршрута в IPv4.
 type MIB_IPFORWARDROW struct {
 	DwForwardDest      uint32
 	DwForwardMask      uint32
@@ -63,127 +29,180 @@ type MIB_IPFORWARDROW struct {
 	DwForwardMetric5   uint32
 }
 
-// GetExistingRoutesFast получает все существующие IPv4-маршруты за миллисекунды через WinAPI.
-// Возвращает мапу, где ключи — префиксы назначения в формате CIDR ("10.0.0.0/8").
-func GetExistingRoutesFast() map[string]bool {
-	existing := make(map[string]bool)
-	var size uint32
-	procGetIpForwardTable.Call(0, uintptr(unsafe.Pointer(&size)), 0)
-	if size == 0 {
-		return existing
-	}
+var (
+	iphlpapi              = syscall.NewLazyDLL("iphlpapi.dll")
+	procGetIpForwardTable = iphlpapi.NewProc("GetIpForwardTable")
+)
 
+func getIPv4RouteRows() []MIB_IPFORWARDROW {
+	var size uint32
+	_, _, _ = procGetIpForwardTable.Call(0, uintptr(unsafe.Pointer(&size)), 0)
+	if size < 4 {
+		return nil
+	}
 	buf := make([]byte, size)
 	ret, _, _ := procGetIpForwardTable.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)), 0)
-	if ret != 0 {
-		return existing
+	if ret != 0 || len(buf) < 4 {
+		return nil
 	}
 
-	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
-	for i := uint32(0); i < numEntries; i++ {
-		row := (*MIB_IPFORWARDROW)(unsafe.Pointer(&buf[4+i*uint32(unsafe.Sizeof(MIB_IPFORWARDROW{}))]))
-		
-		dest := row.DwForwardDest
-		mask := row.DwForwardMask
-		
-		ipStr := fmt.Sprintf("%d.%d.%d.%d", dest&0xff, (dest>>8)&0xff, (dest>>16)&0xff, (dest>>24)&0xff)
-		ip := net.ParseIP(ipStr)
-		maskIP := net.IPv4(byte(mask&0xff), byte((mask>>8)&0xff), byte((mask>>16)&0xff), byte((mask>>24)&0xff))
-		
-		if ip != nil {
-			prefixSize, _ := net.IPMask(maskIP.To4()).Size()
-			cidr := fmt.Sprintf("%s/%d", ip.String(), prefixSize)
-			existing[cidr] = true
+	count := *(*uint32)(unsafe.Pointer(&buf[0]))
+	rowSize := int(unsafe.Sizeof(MIB_IPFORWARDROW{}))
+	maxRows := (len(buf) - 4) / rowSize
+	if int(count) > maxRows {
+		count = uint32(maxRows)
+	}
+	rows := make([]MIB_IPFORWARDROW, 0, count)
+	for i := uint32(0); i < count; i++ {
+		offset := 4 + int(i)*rowSize
+		row := *(*MIB_IPFORWARDROW)(unsafe.Pointer(&buf[offset]))
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func dwordIPv4(v uint32) net.IP {
+	return net.IPv4(byte(v&0xff), byte((v>>8)&0xff), byte((v>>16)&0xff), byte((v>>24)&0xff))
+}
+
+func GetExistingRoutesFast() map[string]bool {
+	existing := make(map[string]bool)
+	for _, row := range getIPv4RouteRows() {
+		ip := dwordIPv4(row.DwForwardDest)
+		maskIP := dwordIPv4(row.DwForwardMask)
+		ones, bits := net.IPMask(maskIP.To4()).Size()
+		if bits != 32 {
+			continue
 		}
+		existing[fmt.Sprintf("%s/%d", ip.String(), ones)] = true
 	}
 	return existing
 }
 
-// getInterfaceBytes считывает переданные и принятые байты через WinAPI GetIfEntry.
+// getInterfaceBytes reads the actual 64-bit byte counters of fturn-tun.
+// The old GetIfEntry/MIB_IFROW API exposed only 32-bit dwInOctets/dwOutOctets,
+// which wrapped around under sustained traffic and produced bogus totals/speeds.
 func getInterfaceBytes(ifaceName string) (rx, tx int64, err error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
 		return 0, 0, err
 	}
-	row := MIB_IFROW{
-		dwIndex: uint32(iface.Index),
+
+	row := xwindows.MibIfRow2{InterfaceIndex: uint32(iface.Index)}
+	if err := xwindows.GetIfEntry2Ex(xwindows.MibIfEntryNormal, &row); err != nil {
+		return 0, 0, fmt.Errorf("GetIfEntry2Ex(%s): %w", ifaceName, err)
 	}
-	ret, _, _ := procGetIfEntry.Call(uintptr(unsafe.Pointer(&row)))
-	if ret != 0 {
-		return 0, 0, fmt.Errorf("GetIfEntry returned error: %d", ret)
-	}
-	return int64(row.dwInOctets), int64(row.dwOutOctets), nil
+
+	return int64(row.InOctets), int64(row.OutOctets), nil
 }
 
-// defaultGateway определяет текущий активный шлюз по умолчанию в системе.
-func defaultGateway() string {
-	cmd := exec.Command("cmd", "/c", "route print 0.0.0.0")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
+type defaultRouteSnapshot struct {
+	gateway string
+	ifIndex int
+	metric  uint32
+	valid   bool
+}
+
+// defaultRouteFast avoids spawning `route print` every monitor tick. The
+// selected row is the lowest-metric IPv4 default route from IP Helper API.
+func defaultRouteFast() defaultRouteSnapshot {
+	return selectDefaultRoute(getIPv4RouteRows(), interfaceOperational)
+}
+
+func interfaceOperational(index int) bool {
+	iface := xwindows.MibIfRow2{InterfaceIndex: uint32(index)}
+	if err := xwindows.GetIfEntry2Ex(xwindows.MibIfEntryNormal, &iface); err != nil {
+		return true // Keep the route if Windows cannot report link state.
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[0] == "0.0.0.0" && fields[1] == "0.0.0.0" {
-			return fields[2]
+	return iface.OperStatus == xwindows.IfOperStatusUp
+}
+
+func selectDefaultRoute(rows []MIB_IPFORWARDROW, linkUp func(int) bool) defaultRouteSnapshot {
+	var best defaultRouteSnapshot
+	for _, row := range rows {
+		if row.DwForwardDest != 0 || row.DwForwardMask != 0 || row.DwForwardIfIndex == 0 {
+			continue
+		}
+		if !linkUp(int(row.DwForwardIfIndex)) {
+			continue
+		}
+		if !best.valid || row.DwForwardMetric1 < best.metric {
+			gw := dwordIPv4(row.DwForwardNextHop).String()
+			best = defaultRouteSnapshot{
+				gateway: gw,
+				ifIndex: int(row.DwForwardIfIndex),
+				metric:  row.DwForwardMetric1,
+				valid:   true,
+			}
 		}
 	}
-	return ""
+	return best
 }
 
-// getGatewayInterfaceIndex находит индекс интерфейса, через который доступен шлюз.
+func defaultGateway() string {
+	route := defaultRouteFast()
+	if !route.valid {
+		return ""
+	}
+	return route.gateway
+}
+
 func getGatewayInterfaceIndex(gwStr string) (int, error) {
 	gw := net.ParseIP(gwStr)
 	if gw == nil {
 		return 0, fmt.Errorf("invalid gateway IP")
 	}
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return 0, err
-	}
-	for _, iface := range ifaces {
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			ipnet, ok := addr.(*net.IPNet)
-			if ok && !ipnet.IP.IsLoopback() {
-				if ipnet.Contains(gw) {
-					return iface.Index, nil
-				}
-			}
+	// Prefer the route table itself; it is faster and handles adapters whose
+	// gateway is not inside a locally configured subnet.
+	for _, row := range getIPv4RouteRows() {
+		if row.DwForwardDest == 0 && row.DwForwardMask == 0 && dwordIPv4(row.DwForwardNextHop).Equal(gw) {
+			return int(row.DwForwardIfIndex), nil
 		}
 	}
 	return 0, fmt.Errorf("interface for gateway not found")
 }
 
-// IsInternetAvailable проверяет наличие маршрута по умолчанию к сети интернет.
 func IsInternetAvailable() bool {
-	return defaultGateway() != ""
+	return defaultRouteFast().valid
 }
 
-// HasNetworkChanged определяет, изменился ли сетевой шлюз, интерфейс или пропал ли интернет.
-func HasNetworkChanged() bool {
-	activeRoutesMu.Lock()
-	savedGw := activeGatewayIP
-	savedIfIndex := activeIfaceIndex
-	activeRoutesMu.Unlock()
+var (
+	netMonMu       sync.Mutex
+	lastGwIP       string
+	lastIfIndex    int
+	lastRouteValid bool
+	netMonInit     bool
+)
 
-	if savedGw == "" {
-		return defaultGateway() == ""
+func HasNetworkChanged() bool {
+	current := defaultRouteFast()
+
+	netMonMu.Lock()
+	defer netMonMu.Unlock()
+	if !netMonInit {
+		lastGwIP = current.gateway
+		lastIfIndex = current.ifIndex
+		lastRouteValid = current.valid
+		netMonInit = true
+		return false
 	}
-	gw := defaultGateway()
-	if gw == "" {
-		return true // Интернет пропал
-	}
-	ifIndex, err := getGatewayInterfaceIndex(gw)
-	if err != nil || ifIndex != savedIfIndex {
-		return true // Сменился физический интерфейс
-	}
-	if gw != savedGw {
-		return true // Сменился IP-адрес шлюза
-	}
-	return false
+	changed := networkChanged(defaultRouteSnapshot{gateway: lastGwIP, ifIndex: lastIfIndex, valid: lastRouteValid}, current)
+	lastGwIP = current.gateway
+	lastIfIndex = current.ifIndex
+	lastRouteValid = current.valid
+	return changed
+}
+
+func networkChanged(previous, current defaultRouteSnapshot) bool {
+	return previous.valid != current.valid || previous.gateway != current.gateway || previous.ifIndex != current.ifIndex
+}
+
+func resetNetworkMonitor() {
+	current := defaultRouteFast()
+	netMonMu.Lock()
+	lastGwIP = current.gateway
+	lastIfIndex = current.ifIndex
+	lastRouteValid = current.valid
+	netMonInit = true
+	netMonMu.Unlock()
 }

@@ -1,171 +1,204 @@
 <p align="center">
-  <img src="assets/fturnpc_mockup.png" width="750" alt="FTurnPc Interface" />
+  <img src="assets/fturnpc_mockup.png" width="720" alt="FTurnPc" />
 </p>
 
-<h1 align="center">FTurnPc</h1>
+<h1 align="center">FTurnPc Sing-box</h1>
 
 <p align="center">
-  Десктопный VPN-клиент для Windows, который туннелирует трафик через TURN-серверы VK,<br>
-  маскируя соединение под зашифрованный медиатрафик звонка.<br>
-  <sub>Версия для ПК на базе ядра FreeTurn от <a href="https://github.com/samosvalishe">samosvalishe</a></sub>
+  Windows VPN-клиент на базе <b>sing-box + FreeTurn</b>.<br>
+  sing-box создаёт системный TUN, а FreeTurn переносит proxy-трафик через TURN-инфраструктуру.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
-  <img src="https://img.shields.io/badge/Wails-v2-red?style=for-the-badge&logo=wails&logoColor=white" alt="Wails">
-  <img src="https://img.shields.io/badge/Windows-32%2F64--bit-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 32/64-bit">
+  <img src="https://img.shields.io/badge/version-2.0.0-111111?style=flat-square" alt="2.0.0">
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/Wails-2.13-red?style=flat-square" alt="Wails">
+  <img src="https://img.shields.io/badge/sing--box-%3E%3D1.14.0-222222?style=flat-square" alt="sing-box">
+  <img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white" alt="Windows">
 </p>
 
----
+## Документация
+
+**[Открыть документацию FTurnPc для Windows](docs/README.md)**
+
+- [Установка, профили и управление подключением](docs/usage.md)
+- [Обновление приложения, FreeTurn и RU-списка](docs/updates.md)
+- [Замена ядер FreeTurn и sing-box, резервная копия и откат](docs/cores.md)
+- [Совместимость ядер, режимов и ссылок](docs/compatibility.md)
+- [Диагностика подключения и счётчика трафика](docs/troubleshooting.md)
+- [Сборка и сопровождение Windows-версии](docs/development.md)
 
 ## Как это работает
 
-Приложение запускает фоновый процесс `freeturnclient`, который поднимает туннель на локальном адресе `127.0.0.1:9000`. Приложение создаёт системный виртуальный сетевой интерфейс WireGuard (wg-turn) и перенаправляет весь системный интернет-трафик в этот туннель. 
-
-Все пакеты упаковываются в RTP-медиапотоки с шифрованием и передаются на TURN-серверы VK. С точки зрения провайдера ваше соединение выглядит как обычный групповой звонок VK.
-
-```
-Системный трафик → WireGuard (wg-turn) → FTurn Client (127.0.0.1:9000) → RTP/DTLS (Внешний интернет) → Ваш VPS (freeturn-server)
-```
-
----
-
-## Основные возможности
-
-* **Минималистичный дизайн Cobalt**: Интерфейс приложения полностью стилизован под дизайн-систему популярного медиа-загрузчика [cobalt](https://github.com/imputnet/cobalt) — монохромная плоская палитра, моноширинный шрифт IBM Plex Mono и аккуратные скругления без эффектов стекла.
-* **Мониторинг трафика в реальном времени**: Под кнопкой подключения отображается текущая скорость скачивания/отдачи и общий объём принятых/переданных данных.
-* **Обход российских ресурсов (Bypass RU)**:
-  * Включение/выключение в настройках.
-  * Файл `geoip-ru.txt` поддерживает IP-подсети (CIDR), одиночные IP, а также доменные имена и URL (например, `ya.ru`, `2ip.io`, `gosuslugi.ru`). Домены разрешаются в IP-адреса асинхронно на старте.
-  * Применение тысяч маршрутов обхода выполняется пакетно в один шаг с помощью `netsh -f`, что исключает зависание компьютера на старте.
-* **Режим разработчика в настройках**:
-  * Переключатель **«Режим разработчика»** скрывает системные опции от обычного пользователя и открывает доступ к точной настройке параметров.
-  * **Автоматический MTU & TCP MSS Clamping**: Настройка MTU в режиме разработчика принудительно задаёт субинтерфейсный MTU в сетевом стеке Windows (`netsh interface ipv4 set subinterface "wg-turn" mtu=... store=active`). Это автоматически рассчитывает и зажимает максимальный размер сегмента TCP SYN пакетов (`TCP MSS = MTU - 40`), предотвращая фрагментацию и сброс соединений в играх и приложениях.
-  * **Встроенная диагностика STUN NAT**: Диагностический модуль на базе RFC 3489 / RFC 5389 классифицирует тип NAT соединения (*Full Cone NAT*, *Restricted Cone NAT*, *Symmetric NAT* или *UDP Blocked*), позволяя быстро выявлять причины проблем с P2P и сетевыми играми.
-* **Поддержка игровых ретрансляторов (Valve SDR / CS2 / Dota 2)**: Автоматическая регистрация правил в брандмауэре Windows (`FTurn_ICMP_In`), пропускающих входящие сообщения `ICMP Port Unreachable` от кластеров Valve SDR. Это решает проблему со статусом «Задержка: ОШИБКА» в Dota 2 и CS2.
-* **Синхронизированный выход**: Полное завершение фонового процесса `freeturnclient` при закрытии из трея (без зависания зомби-процессов).
-
-
----
-
-## Структура папки приложения
-
-При портативном использовании приложение должно быть расположено в одной папке с необходимыми компонентами:
-
-```
-bin/
-├── FTurnPc.exe            # Интерфейс приложения (этот клиент)
-├── freeturnclient.exe     # Клиентское ядро (из репозитория free-turn-proxy)
-├── wintun.dll             # Драйвер WireGuard (автоматически извлекается нужной разрядности)
-└── geoip-ru.txt           # Список доменов/подсетей для пуска в обход туннеля
+```text
+Windows apps
+    ↓
+fturn-tun (sing-box TUN)
+    ↓
+sing-box routing
+    ├─ direct: RU bypass / приложения / private networks
+    ↓
+proxy: VLESS / WG / Trojan / SS / HY2 / TUIC / ...
+    ↓
+127.0.0.1:9000
+    ↓
+FreeTurn client
+    ↓
+TURN transport
+    ↓
+FreeTurn server / VPS
+    ↓
+Internet
 ```
 
-> [!NOTE]
-> Клиентское ядро **`freeturnclient.exe`** необходимо скачать отдельно из репозитория [free-turn-proxy от samosvalishe](https://github.com/samosvalishe/free-turn-proxy) и положить в ту же папку, где находится `FTurnPc.exe` (или в `build/bin/` перед сборкой установщика).
+`127.0.0.1:9000` — намеренная часть архитектуры. Proxy endpoint перенаправляется в локальный FreeTurn relay, при этом исходный hostname сохраняется для TLS/SNI/Reality там, где это требуется.
 
----
+FreeTurn запускается раньше sing-box. После подтверждения DTLS приложение поднимает `fturn-tun`. На Windows UI выбирает активный аппаратный Ethernet/Wi-Fi по метрике маршрута и создаёт отдельные `/32` маршруты к peer и TURN-серверам. Windows проверяет выбранный путь до и после запуска TUN; при остановке удаляются только маршруты, созданные этой сессией. На других платформах маршруты создаёт FreeTurn с `-routes`.
 
-## Быстрый старт (Windows)
+## Поддержка протоколов
 
-1. Запустите `FTurnPc.exe` **от имени администратора** (необходимо для создания интерфейса WireGuard и настройки таблиц маршрутизации).
-2. Добавьте сервер кнопкой `+`, вставив конфигурационную ссылку.
-3. Нажмите на шестерёнку настроек профиля для изменения количества потоков или ссылки.
-4. Нажмите кнопку питания по центру для активации туннеля.
+URI:
 
----
+- `vless://`
+- `trojan://`
+- `ss://`
+- `hysteria2://` / `hy2://`
+- `tuic://`
 
-## Формат ссылки
+Также поддерживаются legacy WireGuard-профили и raw sing-box JSON.
 
-Приложение принимает конфигурационные ссылки в двух вариантах:
+FreeTurn relay mode определяется автоматически:
 
-**Вариант 1 (Явный, с открытой ссылкой VK):**
-```
-freeturn://<Base64-encoded-JSON> -links "https://vk.ru/call/join/9GLAhfKE5..."
-```
-Здесь ссылка на звонок передаётся открытым текстом после аргумента `-links`.
+| Proxy | FreeTurn mode |
+| --- | --- |
+| VLESS, VMess, Trojan, Shadowsocks, AnyTLS, ShadowTLS, HTTP, SOCKS | `tcp` |
+| WireGuard, Hysteria/Hysteria2, HY2, TUIC | `udp` |
 
-**Вариант 2 (Скрытый, ссылка внутри JSON):**
-```
-freeturn://<Base64-encoded-JSON>
-```
-В этом случае ссылка на звонок не видна снаружи, так как она передаётся напрямую внутри JSON-объекта в поле `"links"`. Это отлично подходит для ботов, когда вы хотите скрыть визуальный вид ссылки от пользователей.
+`mode` и `transport` — разные параметры: первый задаёт локальный relay, второй — транспорт FreeTurn/TURN.
 
-* **`freeturn://<Base64-строка>`** — содержит закодированный JSON-объект с настройками обфускации, ключами и конфигурацией WireGuard.
+## Маршрутизация
 
-Декодированный JSON-объект настроек имеет следующую структуру:
-```json
-{
-  "name": "Название сервера",
-  "provider": "vk",
-  "peer": "IP:порт_TURN_сервера",
-  "transport": "udp",
-  "links": "https://vk.ru/call/join/9GLAhfKE5...",
-  "obf": "настройки_обфускации",
-  "key": "ключ_обфускации",
-  "cid": "client_id",
-  "wg": "[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/24\n...\n[Peer]\nPublicKey = ...\nAllowedIPs = 0.0.0.0/0"
-}
+- TUN: `fturn-tun`
+- `auto_route` + strict routing
+- DNS hijack внутри туннеля
+- `127.0.0.0/8` исключён из TUN для защиты localhost relay
+- FreeTurn process направляется в `direct`
+- TURN IP получают отдельные `/32` маршруты через физический gateway
+- private networks идут напрямую
+- RU bypass — через `geoip-ru.srs` + домены `.ru`, `.su`, `.рф`. Исходные IPv4 CIDR находятся в `build/bin/geoip-ru.txt` ([IPdeny RU aggregated](https://www.ipdeny.com/ipblocks/data/aggregated/ru-aggregated.zone)); рядом сохраняется файл `Copyrights.txt` от IPdeny. Во вкладке «Обход» список можно обновить: приложение скачает и проверит CIDR, скомпилирует новый SRS через sing-box и сохранит оба файла в пользовательском каталоге. Обновление применяется при следующем подключении.
+- bypass приложений — через sing-box `process_path_regex -> direct`
+
+Bypass приложений хранится в:
+
+```text
+%AppData%\FTurnPc-singbox\bypass-apps.json
 ```
 
-Ссылку можно добавить как через меню `+`, так и просто нажав **Ctrl+V** в любом месте окна приложения.
+Это split tunneling на уровне sing-box routing, а не WFP/WinDivert исключение процесса из Windows networking stack.
 
----
+## Трафик и логи
 
-## Сборка из исходников
+Статистика берётся напрямую с `fturn-tun`. На Windows используются 64-битные
+interface counters, а UI показывает скорость и объём с момента текущего
+подключения. Baseline снимается до события готовности туннеля, поэтому трафик
+первой секунды не теряется.
 
-**Требования:** Go 1.26+, Node.js 22+, Wails v2.
+Логи одной пользовательской сессии сохраняются через все auto-reconnect попытки:
 
-### Сборка под Windows:
+```text
+%AppData%\FTurnPc-singbox\logs\
+```
+
+Обычные TCP teardown/reset сообщения не считаются фатальным падением туннеля; реальные ошибки TUN, TLS, WireGuard, startup и timeout остаются видимыми.
+
+## Требования
+
+- Windows x64
+- права для создания TUN и host routes
+- Go 1.26+ для сборки
+- Wails 2.13+
+- sing-box 1.14+
+- FreeTurn client/server
+
+Приложение ищет FreeTurn как `freeturnclient.exe`, `client-windows-amd64.exe` или `client.exe`.
+
+## Установка
+
+Windows x64 установщик доступен в стабильном релизе:
+
+**[Стабильный релиз v2.0.0](https://github.com/LiTarPc/FTurnPc/releases/tag/v2.0.0)**
+
+Тестовые сборки: [Sing-box Fix Preview](https://github.com/LiTarPc/FTurnPc/releases/tag/singbox-fix-latest).
+
+Основная ветка `main` содержит sing-box-версию. Прежний WG-движок сохранён в [ветке wg](https://github.com/LiTarPc/FTurnPc/tree/wg); WG-профили sing-box не используют старый движок.
+
+При каждом push в тестовую ветку автоматически собирается новый NSIS installer и SHA256.
+
+Для ручного запуска:
+
+1. положите `sing-box.exe` 1.14+ и FreeTurn client рядом с приложением;
+2. запустите FTurnPc;
+3. импортируйте `freeturn://` профиль или добавьте профиль вручную;
+4. подключитесь и при необходимости включите RU/application bypass.
+
+## Разработка
+
 ```bash
-# Сборка 64-битной версии (рекомендуется)
-wails build -platform windows/amd64 -o FTrunPc.exe
+cd frontend
+npm install
+cd ..
 
-# Сборка 32-битной версии (legacy)
-wails build -platform windows/386 -o FTrunPc.exe
+go test ./backend
+wails dev
 ```
 
-### Сборка под Linux:
-Установите системные зависимости перед сборкой:
+Windows build:
 
-* **Ubuntu / Debian:**
-  ```bash
-  sudo apt update && sudo apt install -y build-essential gcc pkg-config libgtk-3-dev webkit2gtk-4.1-dev libayatana-appindicator3-dev wireguard-tools
-  ```
-* **Arch Linux / Manjaro:**
-  ```bash
-  sudo pacman -S base-devel pkgconf gtk3 webkit2gtk-4.1 libayatana-appindicator wireguard-tools
-  ```
-* **Fedora / RHEL:**
-  ```bash
-  sudo dnf install -y gcc pkg-config gtk3-devel webkit2gtk4.1-devel libayatana-appindicator-devel wireguard-tools
-  ```
-
-Команда сборки:
 ```bash
-wails build -platform linux/amd64 -tags webkit2_41 -o FTrunPc
+wails build -platform windows/amd64 -nsis
 ```
 
----
+Перед подключением backend автоматически выполняет:
 
-## Создание инсталлятора (NSIS)
+```bash
+sing-box check -c <generated-config>
+```
 
-Вы можете собрать дистрибутив в виде единого установочного EXE-файла, который содержит в себе все ресурсы, предлагает выбор папки установки и создаёт ярлыки:
+## Структура
 
-1. Установите **NSIS** на компьютер: [https://nsis.sourceforge.io/](https://nsis.sourceforge.io/)
-2. Добавьте путь к папке NSIS (например, `C:\Program Files (x86)\NSIS`) в системную переменную `PATH`.
-3. Запустите сборку:
-   ```bash
-   wails build -platform windows/amd64 -nsis
-   ```
-4. Готовый инсталлятор будет лежать в папке **`build/bin/FTurnPc-amd64-installer.exe`**.
+```text
+backend/
+  engine_freeturn.go   FreeTurn lifecycle
+  engine_parser.go     readiness/log parser
+  engine_stats.go      fturn-tun traffic counters
+  singbox_config.go    sing-box config generation
+  singbox_tun.go       sing-box lifecycle
+  bypass_apps.go       application bypass
+  ru_bypass.go         RU bypass
 
----
+frontend/src/
+  pages/Connect.tsx
+  pages/Logs.tsx
+  modals/BypassApps.tsx
+```
 
-> [!IMPORTANT]
-> Приложение является техническим инструментом для защищённого туннелирования собственного трафика через ваш личный TURN-сервер. Пожалуйста, используйте его исключительно в законных целях.
+## Ограничения
 
-## 🤝 Благодарности
-* Создатель ядра Freeturn <a href="https://github.com/samosvalishe">samosvalishe</a> 
-* Код для ui был взят у **https://github.com/luminescq/PWDTT**
-## Лицензия 
-* Этот проект распространяется под лицензией GNU General Public License v3.0.
+- полноценного независимого OS-level kill switch пока нет;
+- application bypass работает на уровне sing-box routing;
+- не все Xray-specific transports поддерживаются URI-парсером;
+- основная runtime-разработка и тестирование ориентированы на Windows.
+
+## Безопасность
+
+Профили и generated configs могут содержать UUID, WireGuard keys, passwords, FreeTurn links и другие чувствительные данные. Перед публикацией логов или конфигов удаляйте секреты.
+
+## Credits
+
+- [samosvalishe/free-turn-proxy](https://github.com/samosvalishe/free-turn-proxy)
+- [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
+- [PWDTT](https://github.com/luminescq/PWDTT)
+
+## License
+
+GNU GPLv3.

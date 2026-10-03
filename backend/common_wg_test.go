@@ -1,175 +1,157 @@
 package backend
 
 import (
+	"net"
 	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestParseWGConfig_FullConfig(t *testing.T) {
+func TestParseWGConfig_ValidSections(t *testing.T) {
 	input := `[Interface]
 Address = 10.0.0.2/32
-DNS = 1.1.1.1
-MTU = 1420
-PrivateKey = secret123
-PostUp = iptables -A ...
-PreDown = iptables -D ...
+DNS = 1.1.1.1, 8.8.8.8
+MTU = 1380
+PrivateKey = private
+PostUp = should-be-stripped
 
 [Peer]
-PublicKey = pubkey456
-Endpoint = 1.2.3.4:56001
-AllowedIPs = 0.0.0.0/0, ::/0
+PublicKey = public
+Endpoint = 203.0.113.10:51820
+AllowedIPs = 0.0.0.0/0, 10.0.0.0/8
 PersistentKeepalive = 25
 `
-	addr, mtu, allowedIPs, dnsServers, wgConf := parseWGConfig(input)
+	addr, mtu, allowed, dns, wgConf := parseWGConfig(input)
 
 	if addr != "10.0.0.2/32" {
-		t.Errorf("addr = %q, want %q", addr, "10.0.0.2/32")
+		t.Fatalf("addr = %q", addr)
 	}
-	if mtu != "1420" {
-		t.Errorf("mtu = %q, want %q", mtu, "1420")
+	if mtu != "1380" {
+		t.Fatalf("mtu = %q", mtu)
 	}
-	wantIPs := []string{"0.0.0.0/0", "::/0"}
-	if !reflect.DeepEqual(allowedIPs, wantIPs) {
-		t.Errorf("allowedIPs = %v, want %v", allowedIPs, wantIPs)
+	if !reflect.DeepEqual(allowed, []string{"0.0.0.0/0", "10.0.0.0/8"}) {
+		t.Fatalf("allowedIPs = %#v", allowed)
 	}
-	if len(dnsServers) == 0 {
-		t.Error("dnsServers should not be empty")
+	if !reflect.DeepEqual(dns, []string{"1.1.1.1", "8.8.8.8"}) {
+		t.Fatalf("dns = %#v", dns)
 	}
-	// wgConf strips Address/MTU (extracted) and wg-quick-only fields
-	if containsLine(wgConf, "Address") {
-		t.Error("wgConf should NOT contain Address line (extracted)")
-	}
-	if containsLine(wgConf, "MTU") {
-		t.Error("wgConf should NOT contain MTU line (extracted)")
-	}
-	if containsLine(wgConf, "DNS") {
-		t.Error("wgConf should NOT contain DNS line (quick-only)")
-	}
-	if !containsLine(wgConf, "PrivateKey = secret123") {
-		t.Error("wgConf should contain PrivateKey line")
-	}
-	if !containsLine(wgConf, "PublicKey = pubkey456") {
-		t.Error("wgConf should contain PublicKey line")
-	}
-}
 
-func TestParseWGConfig_QuickOnlyFieldsStripped(t *testing.T) {
-	input := `[Interface]
-Address = 10.0.0.2/32
-DNS = 8.8.8.8
-MTU = 1300
-PreUp = echo start
-PostUp = echo up
-PreDown = echo down
-PostDown = echo stop
-SaveConfig = true
-
-[Peer]
-PublicKey = abc123
-Endpoint = 5.6.7.8:56001
-AllowedIPs = 10.0.0.0/24
-`
-	addr, _, _, dns, wgConf := parseWGConfig(input)
-
-	if addr != "10.0.0.2/32" {
-		t.Errorf("addr = %q, want %q", addr, "10.0.0.2/32")
-	}
-	if len(dns) != 1 || dns[0] != "8.8.8.8" {
-		t.Errorf("dns = %v, want [8.8.8.8]", dns)
-	}
-	// wg-quick-only fields should NOT appear in wgConf output
-	for _, field := range []string{"DNS", "PreUp", "PostUp", "PreDown", "PostDown", "SaveConfig"} {
-		if containsLine(wgConf, field) {
-			t.Errorf("wgConf should NOT contain %s line", field)
+	for _, removed := range []string{"Address =", "DNS =", "MTU =", "PostUp ="} {
+		if strings.Contains(wgConf, removed) {
+			t.Fatalf("wg setconf output still contains wg-quick-only field %q:\n%s", removed, wgConf)
 		}
 	}
-	// Address is extracted and stripped from wgConf
-	if containsLine(wgConf, "Address") {
-		t.Error("wgConf should NOT contain Address line (extracted)")
+	for _, kept := range []string{"[Interface]", "PrivateKey = private", "[Peer]", "PublicKey = public", "AllowedIPs = 0.0.0.0/0, 10.0.0.0/8"} {
+		if !strings.Contains(wgConf, kept) {
+			t.Fatalf("wg setconf output lost %q:\n%s", kept, wgConf)
+		}
 	}
 }
 
-func TestParseWGConfig_NoAllowedIPs(t *testing.T) {
-	input := `[Interface]
-Address = 192.168.1.1/24
+func TestParseWGConfig_IgnoresFieldsOutsideCorrectSections(t *testing.T) {
+	input := `Address = 192.0.2.1/32
+AllowedIPs = 192.0.2.0/24
+
+[Interface]
+PrivateKey = private
 
 [Peer]
-Endpoint = 1.1.1.1:51820
+PublicKey = public
 `
-	addr, _, allowedIPs, _, _ := parseWGConfig(input)
-
-	if addr != "192.168.1.1/24" {
-		t.Errorf("addr = %q, want %q", addr, "192.168.1.1/24")
+	addr, _, allowed, _, _ := parseWGConfig(input)
+	if addr != "" {
+		t.Fatalf("Address outside [Interface] was accepted: %q", addr)
 	}
-	if len(allowedIPs) != 0 {
-		t.Errorf("allowedIPs = %v, want empty", allowedIPs)
+	if len(allowed) != 0 {
+		t.Fatalf("AllowedIPs outside [Peer] were accepted: %#v", allowed)
+	}
+}
+
+func TestParseWGConfig_CaseInsensitiveSectionsAndKeys(t *testing.T) {
+	input := `[interface]
+aDdReSs = 10.0.0.5/32
+mTu = 1300
+dNs = 9.9.9.9
+PrivateKey = private
+
+[pEeR]
+PublicKey = public
+aLlOwEdIpS = 0.0.0.0/0
+`
+	addr, mtu, allowed, dns, _ := parseWGConfig(input)
+	if addr != "10.0.0.5/32" || mtu != "1300" {
+		t.Fatalf("addr/mtu = %q/%q", addr, mtu)
+	}
+	if !reflect.DeepEqual(allowed, []string{"0.0.0.0/0"}) {
+		t.Fatalf("allowed = %#v", allowed)
+	}
+	if !reflect.DeepEqual(dns, []string{"9.9.9.9"}) {
+		t.Fatalf("dns = %#v", dns)
+	}
+}
+
+func TestParseWGConfig_AggregatesAllowedIPsAcrossPeers(t *testing.T) {
+	input := `[Interface]
+Address = 10.0.0.2/32
+PrivateKey = private
+
+[Peer]
+PublicKey = one
+AllowedIPs = 10.0.0.0/8
+
+[Peer]
+PublicKey = two
+AllowedIPs = 172.16.0.0/12, 192.168.0.0/16
+`
+	_, _, allowed, _, _ := parseWGConfig(input)
+	want := []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+	if !reflect.DeepEqual(allowed, want) {
+		t.Fatalf("allowed = %#v, want %#v", allowed, want)
+	}
+}
+
+func TestParseWGConfig_DefaultDNS(t *testing.T) {
+	_, _, _, dns, _ := parseWGConfig(`[Interface]
+Address = 10.0.0.2/32
+PrivateKey = private
+`)
+	want := []string{"1.1.1.1", "1.0.0.1"}
+	if !reflect.DeepEqual(dns, want) {
+		t.Fatalf("dns = %#v, want %#v", dns, want)
 	}
 }
 
 func TestParseWGConfig_EmptyInput(t *testing.T) {
-	addr, mtu, allowedIPs, dns, wgConf := parseWGConfig("")
-
-	if addr != "" {
-		t.Errorf("addr = %q, want empty", addr)
+	addr, mtu, allowed, dns, wgConf := parseWGConfig("")
+	if addr != "" || mtu != "" || len(allowed) != 0 || wgConf != "" {
+		t.Fatalf("unexpected parse result: addr=%q mtu=%q allowed=%#v wg=%q", addr, mtu, allowed, wgConf)
 	}
-	if mtu != "" {
-		t.Errorf("mtu = %q, want empty", mtu)
-	}
-	if len(allowedIPs) != 0 {
-		t.Errorf("allowedIPs = %v, want empty", allowedIPs)
-	}
-	if len(dns) == 0 {
-		t.Errorf("dns = %v, want default DNS", dns)
-	}
-	if wgConf != "" {
-		t.Errorf("wgConf = %q, want empty", wgConf)
+	if !reflect.DeepEqual(dns, []string{"1.1.1.1", "1.0.0.1"}) {
+		t.Fatalf("dns = %#v", dns)
 	}
 }
 
-func TestParseWGConfig_SingleAllowedIP(t *testing.T) {
-	input := `AllowedIPs = 172.16.0.0/16`
-	_, _, allowedIPs, _, _ := parseWGConfig(input)
-
-	if len(allowedIPs) != 1 || allowedIPs[0] != "172.16.0.0/16" {
-		t.Errorf("allowedIPs = %v, want [172.16.0.0/16]", allowedIPs)
+func TestGetVKExcludeCIDRs_AreValidIPv4Networks(t *testing.T) {
+	cidrs := GetVKExcludeCIDRs()
+	if len(cidrs) == 0 {
+		t.Fatal("VK exclusion list is empty")
 	}
-}
-
-func TestParseWGConfig_CaseInsensitiveKeys(t *testing.T) {
-	input := `
-address = 10.0.0.5/32
-MTU = 1300
-allowedips = 0.0.0.0/0
-`
-	addr, mtu, allowedIPs, _, _ := parseWGConfig(input)
-
-	if addr != "10.0.0.5/32" {
-		t.Errorf("addr = %q, want %q", addr, "10.0.0.5/32")
-	}
-	if mtu != "1300" {
-		t.Errorf("mtu = %q, want %q", mtu, "1300")
-	}
-	if len(allowedIPs) != 1 || allowedIPs[0] != "0.0.0.0/0" {
-		t.Errorf("allowedIPs = %v, want [0.0.0.0/0]", allowedIPs)
-	}
-}
-
-func TestVkExcludeCIDRsNotEmpty(t *testing.T) {
-	if len(GetVKExcludeCIDRs()) == 0 {
-		t.Error("GetVKExcludeCIDRs should not be empty")
-	}
-}
-
-func TestWgQuickOnlyFieldsExpectedKeys(t *testing.T) {
-	expected := []string{"address", "dns", "mtu", "preup", "postup", "predown", "postdown", "saveconfig"}
-	for _, k := range expected {
-		if !wgQuickOnlyFields[k] {
-			t.Errorf("wgQuickOnlyFields missing key %q", k)
+	seen := map[string]bool{}
+	for _, cidr := range cidrs {
+		ip, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			t.Fatalf("invalid VK CIDR %q: %v", cidr, err)
 		}
+		if ip.To4() == nil || network.IP.To4() == nil {
+			t.Fatalf("VK CIDR is not IPv4: %q", cidr)
+		}
+		canonical := network.String()
+		if canonical != cidr {
+			t.Fatalf("VK CIDR %q is not canonical; use %q", cidr, canonical)
+		}
+		if seen[cidr] {
+			t.Fatalf("duplicate VK CIDR %q", cidr)
+		}
+		seen[cidr] = true
 	}
-}
-
-func containsLine(s, sub string) bool {
-	return strings.Contains(s, sub)
 }

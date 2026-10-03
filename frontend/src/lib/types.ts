@@ -16,6 +16,7 @@ export interface Server {
   wg?: string;
   links?: string;
   streamsPerCred?: number;
+  sb?: any;     // sing-box конфигурация
 }
 
 export interface AppSettings {
@@ -28,6 +29,7 @@ export interface AppSettings {
   hashes: [string, string, string, string];
   useGlobalHashes: boolean;
   bypassRu: boolean;
+  dnsServer: string;
   autoUpdateCore: boolean;
 }
 
@@ -38,10 +40,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   power: 9,
   mtu: 1300,
   tray: true,
-  autoStart: true,
+  autoStart: false,
   autoConnect: false,
   hashes: ['', '', '', ''],
   useGlobalHashes: false,
   bypassRu: false,
+  dnsServer: '',
   autoUpdateCore: true,
 };

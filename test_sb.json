@@ -1,0 +1,21 @@
+{
+  "outbounds": [
+    {
+      "type": "wireguard",
+      "tag": "proxy",
+      "local_address": [
+        "10.13.13.17/32"
+      ],
+      "private_key": "WButGJVR2UwzzIEMcBeupjLBs7JZfw/8=",
+      "peers": [
+        {
+          "server": "127.0.0.1",
+          "server_port": 9000,
+          "public_key": "J93kHfpg7Sfu38fkejQuNpnuyC52uOWk=",
+          "allowed_ips": ["0.0.0.0/0"]
+        }
+      ],
+      "mtu": 1420
+    }
+  ]
+}

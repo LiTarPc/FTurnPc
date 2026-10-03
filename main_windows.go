@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"log"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -20,13 +21,17 @@ var appIcon []byte
 //go:embed assets/icons/tree-icon.png
 var trayIcon []byte
 
-func main() {
+//go:embed assets/freeturn/geoip-ru.srs
+var geoIPRuSRS []byte
 
-	backend.InitWintun(wintunDLL)
-	app := backend.NewApp(trayIcon)
+func main() {
+	if err := backend.MigrateWindowsAutoStart(); err != nil {
+		log.Printf("[AutoStart] Не удалось перенести автозапуск в Планировщик заданий: %v", err)
+	}
+	app := backend.NewApp(trayIcon, geoIPRuSRS)
 
 	err := wails.Run(&options.App{
-		Title:     "FTurnPc",
+		Title:     "FTurnPc-singbox",
 		Width:     430,
 		Height:    670,
 		MinWidth:  400,

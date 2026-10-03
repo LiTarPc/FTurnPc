@@ -6,51 +6,93 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// startStatsLoop запускает фоновый опрос объема сетевого трафика и количества активных потоков.
+// trafficCounter converts an absolute interface byte counter into bytes used
+// since this stats loop started. Interface counters can survive between user
+// sessions, so the first successful sample is always treated as the baseline.
+type trafficCounter struct {
+	initialized bool
+	last        int64
+	total       int64
+}
+
+type trafficTotals struct {
+	rx trafficCounter
+	tx trafficCounter
+}
+
+func newTrafficTotals(rx, tx int64) trafficTotals {
+	var totals trafficTotals
+	totals.update(rx, tx)
+	return totals
+}
+
+func (t *trafficTotals) update(rx, tx int64) (sessionRx, sessionTx int64) {
+	return t.rx.update(rx), t.tx.update(tx)
+}
+
+func (c *trafficCounter) update(raw int64) int64 {
+	if raw < 0 {
+		return c.total
+	}
+	if !c.initialized {
+		c.initialized = true
+		c.last = raw
+		return 0
+	}
+
+	var delta int64
+	if raw >= c.last {
+		delta = raw - c.last
+	} else {
+		// The TUN adapter was reset/recreated and its absolute counter restarted.
+		// Keep the accumulated session total and count only bytes observed after
+		// the reset. Windows uses GetIfEntry2 64-bit octet counters, so there is
+		// no 32-bit wraparound to compensate for here.
+		delta = raw
+	}
+
+	if delta > 0 {
+		c.total += delta
+	}
+	c.last = raw
+	return c.total
+}
+
+// startStatsLoop polls byte counters from the fturn-tun adapter and reports
+// traffic that crossed that interface during the current user connection.
 func (e *FreeturnEngine) startStatsLoop() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.statsStop != nil {
 		return
 	}
+
+	// Capture the baseline before the first one-second tick. Waiting for the
+	// ticker here used to discard every byte transferred during the first
+	// second of a connection.
+	tunName := e.tunName
+	if tunName == "" {
+		tunName = singTunName
+	}
+	initialRx, initialTx, initialErr := getInterfaceBytes(tunName)
+	var totals trafficTotals
+	if initialErr == nil {
+		totals = newTrafficTotals(initialRx, initialTx)
+	}
 	e.statsStop = make(chan struct{})
-	go func(stop chan struct{}) {
+	go func(stop chan struct{}, totals trafficTotals) {
 		t := time.NewTicker(1 * time.Second)
 		defer t.Stop()
-
-		var lastRx, lastTx int64
-		var cumRx, cumTx int64
 
 		for {
 			select {
 			case <-t.C:
-				rx, tx, err := getInterfaceBytes(wgIface)
+				rx, tx, err := getInterfaceBytes(tunName)
 				if err != nil {
 					continue
 				}
 
-				// Компенсация 32-битного переполнения (Windows GetIfEntry возвращает uint32)
-				if rx < lastRx {
-					if lastRx > 0x80000000 && rx < 0x40000000 {
-						// Реальное переполнение uint32 (> 4 ГБ)
-						cumRx += (1 << 32)
-					} else {
-						// Сброс счетчика сетевого адаптера (реконнект, переподнятие интерфейса)
-						cumRx += lastRx
-					}
-				}
-				if tx < lastTx {
-					if lastTx > 0x80000000 && tx < 0x40000000 {
-						cumTx += (1 << 32)
-					} else {
-						cumTx += lastTx
-					}
-				}
-				lastRx = rx
-				lastTx = tx
-
-				realRx := cumRx + rx
-				realTx := cumTx + tx
+				sessionRx, sessionTx := totals.update(rx, tx)
 
 				e.muStreams.Lock()
 				activeCount := len(e.activeStreams)
@@ -59,11 +101,11 @@ func (e *FreeturnEngine) startStatsLoop() {
 				packedWorkers := int32(activeCount) | (int32(e.configuredStreams) << 16)
 
 				if e.onTray != nil {
-					e.onTray(true, realRx, realTx, packedWorkers)
+					e.onTray(true, sessionRx, sessionTx, packedWorkers)
 				}
 				runtime.EventsEmit(e.appCtx, "stats", map[string]interface{}{
-					"rx":             realRx,
-					"tx":             realTx,
+					"rx":             sessionRx,
+					"tx":             sessionTx,
 					"active_streams": activeCount,
 					"configured_max": e.configuredStreams,
 				})
@@ -71,7 +113,7 @@ func (e *FreeturnEngine) startStatsLoop() {
 				return
 			}
 		}
-	}(e.statsStop)
+	}(e.statsStop, totals)
 }
 
 func (e *FreeturnEngine) stopStatsLoopLocked() {
