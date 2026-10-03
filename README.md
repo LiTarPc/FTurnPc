@@ -78,9 +78,9 @@ bin/
 
 Приложение принимает конфигурационные ссылки в двух вариантах:
 
-**Вариант 1 (Явный, с открытой ссылкой VK):**
+**Вариант 1 :**
 ```
-freeturn://<Base64-encoded-JSON> -links "https://vk.ru/call/join/9GLAhfKE5..."
+freeturn://<Base64-encoded-JSON> -links " "
 ```
 Здесь ссылка на звонок передаётся открытым текстом после аргумента `-links`.
 
@@ -99,7 +99,7 @@ freeturn://<Base64-encoded-JSON>
   "provider": "vk",
   "peer": "IP:порт_TURN_сервера",
   "transport": "udp",
-  "links": "https://vk.ru/call/join/9GLAhfKE5...",
+  "links": "",
   "obf": "настройки_обфускации",
   "key": "ключ_обфускации",
   "cid": "client_id",
