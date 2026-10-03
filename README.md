@@ -17,6 +17,17 @@
   <img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white" alt="Windows">
 </p>
 
+## Документация
+
+**[Открыть документацию FTurnPc для Windows](docs/README.md)**
+
+- [Установка, профили и управление подключением](docs/usage.md)
+- [Обновление приложения, FreeTurn и RU-списка](docs/updates.md)
+- [Замена ядер FreeTurn и sing-box, резервная копия и откат](docs/cores.md)
+- [Совместимость ядер, режимов и ссылок](docs/compatibility.md)
+- [Диагностика подключения и счётчика трафика](docs/troubleshooting.md)
+- [Сборка и сопровождение Windows-версии](docs/development.md)
+
 ## Как это работает
 
 ```text
