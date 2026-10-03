@@ -59,7 +59,15 @@ wails build -platform windows/amd64 -nsis
 
 Для sing-box обновите `SINGBOX_VERSION`, пути упаковки NSIS и прогоните интеграционные тесты на выбранном бинарнике. При изменении схемы адаптируйте генератор, не только номер. Учтите [минимальную версию](../backend/singbox_util.go).
 
-## Публикация ветки
+## Основные ветки и публикация
+
+- `main` — основная sing-box-версия.
+- `wg` — сохранённый прежний `main` с WG-движком.
+- `singbox` и `fix/singbox-freeturn-readiness` — ветки разработки sing-box.
+
+Для стабильного выпуска подготовьте `docs/releases/vX.Y.Z.md`, согласуйте тег с `info.productVersion` в `wails.json`, выполните проверки и создайте тег на коммите из `main`. Push тега запускает `release.yml` и Windows NSIS workflow, публикует installer с SHA256 как stable/latest. Требуется формат `vMAJOR.MINOR.PATCH`.
+
+## Preview
 
 Push в `fix/singbox-freeturn-readiness` запускает Windows workflow и обновляет [rolling preview](https://github.com/LiTarPc/FTurnPc/releases/tag/singbox-fix-latest). Поэтому push способен изменить опубликованный installer, а не только сохранить коммиты.
 

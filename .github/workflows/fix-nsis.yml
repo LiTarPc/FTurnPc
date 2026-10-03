@@ -1,10 +1,17 @@
-name: Fix NSIS Installer
+name: Windows Installer
 
 on:
   push:
     branches:
       - fix/singbox-freeturn-readiness
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Stable version tag; empty publishes rolling preview
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -17,6 +24,8 @@ env:
   SINGBOX_VERSION: "1.14.0"
   FREETURN_CORE_COMMIT: "58d4f175d245c5773786e19ace454216c625f92f"
   PREVIEW_TAG: "singbox-fix-latest"
+  RELEASE_TAG: ${{ inputs.release_tag }}
+  INSTALLER_NAME: ${{ inputs.release_tag && format('FTurnPc-{0}-windows-amd64-installer.exe', inputs.release_tag) || 'FTurnPc-singbox-fix-amd64-installer.exe' }}
 
 jobs:
   windows-nsis:
@@ -29,6 +38,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Validate stable release
+        if: inputs.release_tag != ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "Stable release requires a vMAJOR.MINOR.PATCH tag" }
+          $version = (Get-Content wails.json -Raw | ConvertFrom-Json).info.productVersion
+          if ($env:RELEASE_TAG -ne "v$version") { throw "Release tag does not match wails.json: $version" }
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          if ($LASTEXITCODE -ne 0) { throw "Stable release commit must be on main" }
+          if (-not (Test-Path "docs/releases/$env:RELEASE_TAG.md")) { throw "Release notes are missing" }
 
       - name: Checkout FreeTurn v4.1.3 core
         uses: actions/checkout@v4
@@ -125,7 +146,7 @@ jobs:
           if (-not $installer) { throw "NSIS installer was not produced in build/bin" }
 
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          $targetName = "FTurnPc-singbox-fix-amd64-installer.exe"
+          $targetName = $env:INSTALLER_NAME
           $target = Join-Path "dist" $targetName
           Copy-Item $installer.FullName $target
 
@@ -137,14 +158,15 @@ jobs:
       - name: Upload NSIS installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FTurnPc-singbox-fix-nsis-${{ github.run_number }}
+          name: FTurnPc-windows-nsis-${{ github.run_number }}
           path: |
-            dist/FTurnPc-singbox-fix-amd64-installer.exe
-            dist/FTurnPc-singbox-fix-amd64-installer.exe.sha256.txt
+            dist/${{ env.INSTALLER_NAME }}
+            dist/${{ env.INSTALLER_NAME }}.sha256.txt
           if-no-files-found: error
           retention-days: 14
 
       - name: Move rolling prerelease tag
+        if: inputs.release_tag == ''
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -154,6 +176,7 @@ jobs:
           git push origin "refs/tags/$env:PREVIEW_TAG" --force
 
       - name: Publish rolling prerelease
+        if: inputs.release_tag == ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.PREVIEW_TAG }}
@@ -173,5 +196,20 @@ jobs:
 
             Этот prerelease автоматически обновляется при каждом push в fix-ветку.
           files: |
-            dist/FTurnPc-singbox-fix-amd64-installer.exe
-            dist/FTurnPc-singbox-fix-amd64-installer.exe.sha256.txt
+            dist/${{ env.INSTALLER_NAME }}
+            dist/${{ env.INSTALLER_NAME }}.sha256.txt
+
+      - name: Publish stable Windows release
+        if: inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: "FTurnPc ${{ inputs.release_tag }} — Windows sing-box"
+          prerelease: false
+          make_latest: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          body_path: docs/releases/${{ inputs.release_tag }}.md
+          files: |
+            dist/${{ env.INSTALLER_NAME }}
+            dist/${{ env.INSTALLER_NAME }}.sha256.txt

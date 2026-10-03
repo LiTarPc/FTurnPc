@@ -4,7 +4,7 @@
 
 ## Первый запуск
 
-1. Скачайте Windows x64 installer из [Sing-box Fix Preview](https://github.com/LiTarPc/FTurnPc/releases/tag/singbox-fix-latest). Это rolling preview: состав пакета меняется при новых сборках ветки.
+1. Скачайте Windows x64 installer из [стабильного релиза v2.0.0](https://github.com/LiTarPc/FTurnPc/releases/tag/v2.0.0). Для тестирования есть [rolling preview](https://github.com/LiTarPc/FTurnPc/releases/tag/singbox-fix-latest), состав которого меняется при новых сборках.
 2. Установите приложение и запустите FTurnPc с правами администратора. Они нужны для TUN и маршрутов Windows.
 3. Добавьте профиль, полученный от администратора сервера.
 4. Выберите профиль и нажмите кнопку подключения.

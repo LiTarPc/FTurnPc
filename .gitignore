@@ -27,3 +27,6 @@ frontend/wailsjs/
 # Scratch files
 scratch/
 pwdtt-desktop
+
+# Local core configuration can contain secrets
+/client_config.json

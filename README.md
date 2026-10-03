@@ -124,9 +124,13 @@ interface counters, а UI показывает скорость и объём с
 
 ## Установка
 
-Готовая тестовая Windows-сборка публикуется как rolling prerelease:
+Windows x64 установщик доступен в стабильном релизе:
 
-**[Sing-box Fix Preview](https://github.com/LiTarPc/FTurnPc/releases/tag/singbox-fix-latest)**
+**[Стабильный релиз v2.0.0](https://github.com/LiTarPc/FTurnPc/releases/tag/v2.0.0)**
+
+Тестовые сборки: [Sing-box Fix Preview](https://github.com/LiTarPc/FTurnPc/releases/tag/singbox-fix-latest).
+
+Основная ветка `main` содержит sing-box-версию. Прежний WG-движок сохранён в [ветке wg](https://github.com/LiTarPc/FTurnPc/tree/wg); WG-профили sing-box не используют старый движок.
 
 При каждом push в тестовую ветку автоматически собирается новый NSIS installer и SHA256.
 
