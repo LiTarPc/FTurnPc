@@ -3,8 +3,8 @@
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--secondary);
-  color: var(--primary);
+  background: var(--accent);
+  color: var(--accent-fg);
   padding: 8px 18px;
   border-radius: var(--border-radius);
   font-size: 12px;

@@ -1,41 +1,43 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
-
 :root {
-  --primary: #ffffff;
-  --secondary: #000000;
-  --gray: #7e7e7e;
-  --button: #f4f4f4;
-  --button-hover: #e8e8e8;
-  --button-press: #dfdfdf;
-  --button-box-shadow: 0 0 0 1.5px #e0e0e0;
-  --sidebar-bg: #f4f4f4;
-  --sidebar-highlight: #e8e8e8;
-  --surface: #ffffff;
-  --border: #e0e0e0;
-  --border-2: #ebebeb;
-  --text: #000000;
-  --text-2: #555555;
-  --text-3: #7e7e7e;
-  --text-4: #b0b0b0;
-  --accent: #000000;
-  --accent-fg: #ffffff;
-  --accent-hover: #222222;
-  --seg-bg: #eeeeee;
-  --seg-text: #555555;
-  --input-border: #d0d0d0;
-  --input-bg: #ffffff;
-  --input-focus: #000000;
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  --overlay-bg: rgba(255, 255, 255, 0.7);
-  --popup-bg: #ffffff;
-  --border-radius: 11px;
+  color-scheme: light;
+  --primary: #FCFAF6;
+  --secondary: #65182C;
+  --gray: #756B6E;
+  --button: #F4F0E9;
+  --button-hover: #EDE5DF;
+  --button-press: #E5DEDA;
+  --button-box-shadow: 0 0 0 1px #E5DEDA;
+  --sidebar-bg: #F4F0E9;
+  --sidebar-highlight: #EDE5DF;
+  --surface: #F4F0E9;
+  --border: #E5DEDA;
+  --border-2: #E5DEDA;
+  --text: #30272B;
+  --text-2: #756B6E;
+  --text-3: #756B6E;
+  --text-4: #756B6E;
+  --accent: #65182C;
+  --accent-fg: #FFF7ED;
+  --accent-hover: #8C3047;
+  --accent-press: #3B1020;
+  --seg-bg: #E5DEDA;
+  --seg-text: #756B6E;
+  --input-border: #E5DEDA;
+  --input-bg: #FCFAF6;
+  --input-focus: #65182C;
+  --shadow: 0 2px 8px rgba(59, 16, 32, 0.04);
+  --overlay-bg: rgba(48, 39, 43, 0.18);
+  --popup-bg: #F4F0E9;
+  --border-radius: 14px;
   --padding: 12px;
-  --font: 'IBM Plex Mono', monospace;
-  --toggle-on: #2ed573;
-  --toggle-off: #dcdcdc;
+  --font: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, 'Courier New', monospace;
+  --toggle-on: #65182C;
+  --toggle-off: #E5DEDA;
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --primary: #000000;
   --secondary: #e1e1e1;
   --gray: #7e7e7e;
@@ -52,9 +54,9 @@
   --text-2: #aaaaaa;
   --text-3: #7e7e7e;
   --text-4: #4a4a4a;
-  --accent: #e1e1e1;
-  --accent-fg: #000000;
-  --accent-hover: #cccccc;
+  --accent: #65182C;
+  --accent-fg: #FFF7ED;
+  --accent-hover: #8C3047;
   --seg-bg: #1e1e1e;
   --seg-text: #aaaaaa;
   --input-border: #333333;
@@ -63,7 +65,7 @@
   --shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   --overlay-bg: rgba(0, 0, 0, 0.7);
   --popup-bg: #141414;
-  --toggle-on: #2ed573;
+  --toggle-on: #65182C;
   --toggle-off: #333333;
 }
 
@@ -158,7 +160,7 @@ p {
 }
 
 code, .counter {
-  font-family: var(--font);
+  font-family: var(--font-mono);
   display: inline-flex;
   border-radius: 4px;
   color: var(--text);
@@ -186,4 +188,46 @@ code {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-4);
+}
+
+::selection {
+  background: var(--accent-hover);
+  color: var(--accent-fg);
+}
+
+:root :where(button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 3px;
+}
+
+input[type="checkbox"], input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+button.accent-button {
+  background: var(--accent);
+  color: var(--accent-fg);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.accent-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.accent-button:active:not(:disabled) {
+  background: var(--accent-press);
+}
+
+.accent-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

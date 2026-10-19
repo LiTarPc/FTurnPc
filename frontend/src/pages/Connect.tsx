@@ -359,7 +359,6 @@ export default function Connect() {
   return (
     <>
       <style>{`
-        * { font-family: var(--font); box-sizing: border-box; }
         .main {
           flex: 1;
           display: flex;
@@ -386,6 +385,16 @@ export default function Connect() {
           display: flex;
           align-items: center;
           gap: 8px;
+        }
+        .brand-icon {
+          width: 30px;
+          height: 30px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 9px;
+          background: var(--accent);
+          color: var(--accent-fg);
         }
         .btn-add {
           background: var(--button);
@@ -419,10 +428,10 @@ export default function Connect() {
           width: 140px;
           height: 140px;
           border-radius: 36px;
-          background: var(--button);
-          color: var(--text-2);
-          border: 1px solid var(--border);
-          box-shadow: var(--shadow);
+          background: var(--accent);
+          color: var(--accent-fg);
+          border: 1px solid var(--accent);
+          box-shadow: none;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -430,27 +439,27 @@ export default function Connect() {
           transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .power-btn:hover:not(:disabled) {
-          background: var(--button-hover);
-          color: var(--text);
-          transform: translateY(-2px);
-          box-shadow: var(--shadow), 0 4px 12px rgba(0,0,0,0.05);
+          background: var(--accent-hover);
+          border-color: var(--accent-hover);
+          transform: translateY(-1px);
         }
         .power-btn:active:not(:disabled) {
-          background: var(--button-press);
+          background: var(--accent-press);
+          border-color: var(--accent-press);
           transform: translateY(0);
         }
         .power-btn:disabled {
-          opacity: 0.5;
+          background: var(--button);
+          color: var(--text-3);
+          border-color: var(--border);
           cursor: not-allowed;
         }
         .power-btn--active {
-          background: var(--secondary);
-          color: var(--primary);
-          border-color: var(--secondary);
+          background: var(--accent-press);
+          border-color: var(--accent-press);
         }
         .power-btn--spinning {
-          background: var(--button-hover);
-          color: var(--text-3);
+          cursor: progress;
         }
         .power-icon--spinning {
           animation: spin 1.5s linear infinite;
@@ -495,6 +504,7 @@ export default function Connect() {
         .stats-speed {
           font-size: 13px;
           font-weight: 700;
+          font-variant-numeric: tabular-nums;
           color: var(--text);
           margin-bottom: 2px;
           white-space: nowrap;
@@ -553,7 +563,11 @@ export default function Connect() {
           background: var(--button);
         }
         .server-item--active {
-          background: var(--button-hover);
+          background: var(--accent);
+          color: var(--accent-fg);
+        }
+        .server-item--active:hover {
+          background: var(--accent-hover);
         }
         .server-icon-btn {
           background: none;
@@ -562,7 +576,7 @@ export default function Connect() {
           padding: 0;
           display: flex;
           align-items: center;
-          color: var(--text);
+          color: inherit;
         }
         .server-edit-btn {
           background: none;
@@ -571,13 +585,12 @@ export default function Connect() {
           padding: 4px;
           display: flex;
           align-items: center;
-          color: var(--text-3);
-          opacity: 0.6;
+          color: inherit;
+          opacity: 0.7;
           transition: opacity 0.15s, color 0.15s;
         }
         .server-edit-btn:hover {
           opacity: 1;
-          color: var(--text);
         }
         .status-server {
           display: flex;
@@ -597,6 +610,19 @@ export default function Connect() {
         }
         .status-server:hover {
           background: var(--button-hover);
+        }
+        .status-server--selected {
+          background: var(--accent);
+          border-color: var(--accent);
+          color: var(--accent-fg);
+        }
+        .status-server--selected:hover {
+          background: var(--accent-hover);
+          border-color: var(--accent-hover);
+        }
+        .status-server--selected:active {
+          background: var(--accent-press);
+          border-color: var(--accent-press);
         }
         .status-server--empty {
           color: var(--text-4);
@@ -649,8 +675,12 @@ export default function Connect() {
           background: var(--button);
         }
         .icon-picker-btn--active {
-          background: var(--button-hover);
-          border-color: var(--border);
+          background: var(--accent);
+          color: var(--accent-fg);
+          border-color: var(--accent);
+        }
+        .icon-picker-btn--active:hover {
+          background: var(--accent-hover);
         }
         @media (max-height: 550px) {
           .power-btn {
@@ -666,10 +696,10 @@ export default function Connect() {
       <main className="main">
         <div className="header-bar">
           <div className="brand-title">
-            <IconPlugConnected size={20} stroke={2.5} style={{ color: 'var(--accent)' }} />
+            <span className="brand-icon"><IconPlugConnected size={19} stroke={2} /></span>
             <span>FreeTurn</span>
           </div>
-          <button className="btn-add" onClick={() => setAddServerOpen(true)}>
+          <button className="btn-add" aria-label="Добавить сервер" onClick={() => setAddServerOpen(true)}>
             <IconPlus stroke={2} size={22} />
           </button>
         </div>
@@ -736,7 +766,7 @@ export default function Connect() {
             </div>
           )}
 
-          <button className={`status-server${!selected ? ' status-server--empty' : ''}`} onClick={() => setListOpen(o => !o)}>
+          <button className={`status-server${selected ? ' status-server--selected' : ' status-server--empty'}`} aria-expanded={listOpen} onClick={() => setListOpen(o => !o)}>
             <ServerIcon iconKey={selected?.icon} size={20} />
             <span className="status-name">{selected ? selected.name : 'Нет серверов'}</span>
             {selected?.ping != null && (

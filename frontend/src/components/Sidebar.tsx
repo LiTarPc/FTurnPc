@@ -50,7 +50,7 @@ export default function Sidebar({ onSettings, onBypass, pathname: pathnameProp }
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 2px;
+          gap: 6px;
         }
         .nav-btn {
           width: 64px;
@@ -77,6 +77,10 @@ export default function Sidebar({ onSettings, onBypass, pathname: pathnameProp }
         }
         .nav-btn--active:hover {
           background: var(--accent-hover);
+          color: var(--accent-fg);
+        }
+        .nav-btn--active:active {
+          background: var(--accent-press);
           color: var(--accent-fg);
         }
         .nav-label {
@@ -114,6 +118,7 @@ export default function Sidebar({ onSettings, onBypass, pathname: pathnameProp }
             <button
               key={path}
               className={`nav-btn${pathname === path ? ' nav-btn--active' : ''}`}
+              aria-current={pathname === path ? 'page' : undefined}
               onClick={() => navigate(path)}
             >
               {icon}

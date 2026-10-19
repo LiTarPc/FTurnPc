@@ -74,7 +74,7 @@ export default function Logs() {
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          background: var(--primary);
+          background: var(--surface);
         }
         .logs-toolbar {
           display: flex;
@@ -150,6 +150,15 @@ export default function Logs() {
         .filter-btn--active {
           background: var(--accent);
           color: var(--accent-fg);
+        }
+        .filter-btn--active:hover {
+          background: var(--accent-hover);
+        }
+        .filter-btn--active:active {
+          background: var(--accent-press);
+        }
+        .log-row, .log-row * {
+          font-family: var(--font-mono);
         }
         .icon-btn {
           width: 36px;

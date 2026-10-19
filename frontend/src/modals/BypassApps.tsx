@@ -161,8 +161,10 @@ export default function BypassApps({ onClose }: Props) {
         .bp-setting-hint { color: var(--text-3); font-size: 10px; line-height: 1.45; margin-top: 3px; }
         .bp-toggle { width: 44px; height: 24px; border: 0; border-radius: 50px; background: var(--toggle-off); position: relative; cursor: pointer; flex-shrink: 0; }
         .bp-toggle[aria-checked="true"] { background: var(--toggle-on); }
+        .bp-toggle[aria-checked="true"]:hover { background: var(--accent-hover); }
+        .bp-toggle[aria-checked="true"]:active { background: var(--accent-press); }
         .bp-toggle::after { content: ''; position: absolute; left: 4px; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-3); transition: left 0.2s; }
-        .bp-toggle[aria-checked="true"]::after { left: 24px; background: #fff; }
+        .bp-toggle[aria-checked="true"]::after { left: 24px; background: var(--accent-fg); }
         .bp-advanced { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
         .bp-advanced summary { color: var(--text-3); font-size: 12px; font-weight: 600; cursor: pointer; }
         .bp-mtu { width: 86px; padding: 6px 9px; border: 1px solid var(--input-border); border-radius: var(--border-radius); background: var(--input-bg); color: var(--text); font: inherit; font-size: 12px; text-align: right; }
@@ -409,7 +411,7 @@ export default function BypassApps({ onClose }: Props) {
 
           <div className="bp-footer">
             <span className="bp-count">{apps.length} / 128</span>
-            <button className="bp-save" onClick={save} disabled={loading || saving}>
+            <button className="bp-save accent-button" onClick={save} disabled={loading || saving}>
               <IconDeviceFloppy size={16} />
               {saving ? 'Сохранение...' : 'Сохранить'}
             </button>

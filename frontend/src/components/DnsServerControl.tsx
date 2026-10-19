@@ -12,7 +12,10 @@ export default function DnsServerControl({ value, onChange, onBlur }: Props) {
     <div style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
       <style>{`
         .dns-preset { padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--border-radius); background: var(--button); color: var(--text); cursor: pointer; font: inherit; font-size: 11px; }
-        .dns-preset--active { border-color: var(--accent); font-weight: 700; }
+        .dns-preset:hover { background: var(--button-hover); }
+        .dns-preset--active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 700; }
+        .dns-preset--active:hover { background: var(--accent-hover); }
+        .dns-preset--active:active { background: var(--accent-press); }
       `}</style>
       <label htmlFor="singbox-dns" style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
         DNS для sing-box

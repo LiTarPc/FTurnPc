@@ -104,7 +104,7 @@ export default function AddServer({ onClose, onAdd }: Props) {
             />
           )}
           
-          <button className="as-btn" onClick={handleAdd} disabled={!parsed || !name.trim()}>Добавить сервер</button>
+          <button className="as-btn accent-button" onClick={handleAdd} disabled={!parsed || !name.trim()}>Добавить сервер</button>
         </div>
       </div>
     </>

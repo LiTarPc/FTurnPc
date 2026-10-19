@@ -202,8 +202,8 @@ export function ViewServer({ server, onClose, onSave }: Props) {
           border: none;
           transition: background-color 0.2s;
         }
-        .btn:hover {
-          opacity: 0.9;
+        .btn:not(.accent-button):hover {
+          background: var(--button-hover);
         }
         .btn-close {
           background: none;
@@ -345,7 +345,7 @@ export function ViewServer({ server, onClose, onSave }: Props) {
           </div>
           <div className="modal-footer">
             <button className="btn" onClick={onClose} style={{background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)'}}>Закрыть</button>
-            <button className="btn" onClick={handleSave} style={{background: 'var(--accent)', color: 'var(--accent-fg)'}}>Сохранить</button>
+            <button className="btn accent-button" onClick={handleSave}>Сохранить</button>
           </div>
         </div>
       </div>

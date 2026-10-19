@@ -114,13 +114,18 @@ export default function Settings({ onClose }: Props) {
         .st-row:last-of-type { border-bottom: none; }
         .st-toggle { width: 44px; height: 24px; border-radius: 50px; border: none; cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0; }
         .st-toggle--on { background: var(--toggle-on); }
+        .st-toggle--on:hover { background: var(--accent-hover); }
+        .st-toggle--on:active { background: var(--accent-press); }
+        .st-toggle:disabled { opacity: 0.5; cursor: wait; }
         .st-toggle--off { background: var(--toggle-off); }
         .st-toggle::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; top: 4px; transition: left 0.2s; }
-        .st-toggle--on::after { background: #ffffff; left: 24px; }
+        .st-toggle--on::after { background: var(--accent-fg); left: 24px; }
         .st-toggle--off::after { background: var(--text-3); left: 4px; }
         .st-seg { display: flex; background: var(--seg-bg); border-radius: var(--border-radius); padding: 2px; gap: 2px; }
         .st-seg-btn { padding: 5px 13px; border: none; border-radius: calc(var(--border-radius) - 2px); font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s; background: transparent; color: var(--seg-text); }
         .st-seg-btn--active { background: var(--accent); color: var(--accent-fg); }
+        .st-seg-btn--active:hover { background: var(--accent-hover); }
+        .st-seg-btn--active:active { background: var(--accent-press); }
         .st-slider-wrap { padding: 4px 0 11px; border-bottom: 1px solid var(--border); }
         .st-slider-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--text); margin-bottom: 8px; }
         .st-slider { width: 100%; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; cursor: pointer; background: linear-gradient(to right, var(--accent) calc(var(--v) * 1%), var(--border) calc(var(--v) * 1%)); }
@@ -162,7 +167,7 @@ export default function Settings({ onClose }: Props) {
 
           <div className="st-row">
             <span>Трей</span>
-            <button className={`st-toggle st-toggle--${settings.tray ? 'on' : 'off'}`} onClick={() => {
+            <button role="switch" aria-checked={settings.tray} aria-label="Трей" className={`st-toggle st-toggle--${settings.tray ? 'on' : 'off'}`} onClick={() => {
               const next = !settings.tray;
               update('tray', next);
               SetTrayEnabled(next);
@@ -171,7 +176,7 @@ export default function Settings({ onClose }: Props) {
 
           <div className="st-row">
             <span>Запускать с Windows</span>
-            <button disabled={autoStartBusy} className={`st-toggle st-toggle--${settings.autoStart ? 'on' : 'off'}`} onClick={async () => {
+            <button disabled={autoStartBusy} role="switch" aria-checked={settings.autoStart} aria-label="Запускать с Windows" className={`st-toggle st-toggle--${settings.autoStart ? 'on' : 'off'}`} onClick={async () => {
               const next = !settings.autoStart;
               setAutoStartBusy(true);
               try {
@@ -187,12 +192,12 @@ export default function Settings({ onClose }: Props) {
 
           <div className="st-row">
             <span>Авто-подключение</span>
-            <button className={`st-toggle st-toggle--${settings.autoConnect ? 'on' : 'off'}`} onClick={() => update('autoConnect', !settings.autoConnect)} />
+            <button role="switch" aria-checked={settings.autoConnect} aria-label="Автоподключение" className={`st-toggle st-toggle--${settings.autoConnect ? 'on' : 'off'}`} onClick={() => update('autoConnect', !settings.autoConnect)} />
           </div>
 
           <div className="st-row">
             <span>Автопроверка обновлений ядра</span>
-            <button className={`st-toggle st-toggle--${settings.autoUpdateCore !== false ? 'on' : 'off'}`} onClick={() => update('autoUpdateCore', settings.autoUpdateCore === false)} />
+            <button role="switch" aria-checked={settings.autoUpdateCore !== false} aria-label="Автопроверка обновления ядра" className={`st-toggle st-toggle--${settings.autoUpdateCore !== false ? 'on' : 'off'}`} onClick={() => update('autoUpdateCore', settings.autoUpdateCore === false)} />
           </div>
 
           <div className="st-nat-box" style={{ marginTop: 12 }}>
@@ -200,15 +205,15 @@ export default function Settings({ onClose }: Props) {
             <div className="st-nat-sub">Статус ядра: <strong>{coreVer}</strong></div>
             <div className="st-nat-sub">Обновления: LiTarPc/fturn-core (включая preview)</div>
             {coreUpdate && (
-              <div className="st-nat-sub" style={{ color: coreUpdate.hasUpdate ? '#4ade80' : '#94a3b8', marginTop: 2 }}>
+              <div className="st-nat-sub" style={{ color: coreUpdate.hasUpdate ? 'var(--accent)' : 'var(--text-3)', marginTop: 2 }}>
                 {coreUpdate.hasUpdate ? `Доступна новая версия: ${coreUpdate.latestVersion}` : 'Установлена актуальная версия ядра'}
               </div>
             )}
             {coreUpdating && (
-              <div style={{ margin: '8px 0 4px 0', fontSize: '11px', color: '#60a5fa' }}>
+              <div style={{ margin: '8px 0 4px 0', fontSize: '11px', color: 'var(--accent)' }}>
                 {coreProgressMsg || `Загрузка и установка: ${coreProgress}%`}
-                <div style={{ background: '#334155', height: '4px', borderRadius: '2px', overflow: 'hidden', marginTop: '4px' }}>
-                  <div style={{ background: '#3b82f6', width: `${coreProgress}%`, height: '100%', transition: 'width 0.2s' }} />
+                <div style={{ background: 'var(--border)', height: '4px', borderRadius: '2px', overflow: 'hidden', marginTop: '4px' }}>
+                  <div style={{ background: 'var(--accent)', width: `${coreProgress}%`, height: '100%', transition: 'width 0.2s' }} />
                 </div>
               </div>
             )}
@@ -217,7 +222,7 @@ export default function Settings({ onClose }: Props) {
                 {coreChecking ? 'Проверка...' : 'Проверить обновление'}
               </button>
               {coreUpdate?.hasUpdate && (
-                <button className="st-nat-btn" style={{ background: '#166534', color: '#ffffff' }} onClick={handleDoCoreUpdate} disabled={coreUpdating}>
+                <button className="st-nat-btn accent-button" onClick={handleDoCoreUpdate} disabled={coreUpdating}>
                   <IconDownload size={14} /> {coreUpdating ? 'Обновление...' : 'Обновить ядро'}
                 </button>
               )}
